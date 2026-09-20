@@ -149,7 +149,10 @@ def test_optical_preview_physical_cell_positioning():
         for c in range(w):
             x_w = (c + 0.5 - w / 2.0) * pitch_mm_1
             y_w = -(r + 0.5 - h / 2.0) * pitch_mm_1
-            expected = simulate_cell_optical_color(1000, 0.0, world_pos=(x_w, y_w, 0.0))
+            expected = simulate_cell_optical_color(
+                1000, 0.0, world_pos=(x_w, y_w, 0.0),
+                holopixel_diameter_nm=pitch_nm_1,
+            )
             np.testing.assert_allclose(
                 preview_1[r, c],
                 expected,
@@ -162,8 +165,8 @@ def test_optical_preview_physical_cell_positioning():
     design_2 = Design(shape=shape, pitch_nm=pitch_nm_2, period_nm=period_nm, angle_deg=angle_deg, active=active)
     preview_2 = render_optical_preview(design_2)
 
-    # Center cell (1, 1) has (x, y) = (0, 0) in both designs
-    np.testing.assert_allclose(preview_1[1, 1], preview_2[1, 1], atol=1e-6)
+    # Center positions match, but their physical apertures differ.
+    assert not np.allclose(preview_1[1, 1], preview_2[1, 1])
 
     # Off-center corner cell (0, 0) has different physical positions (-0.02 mm vs -0.06 mm)
     pitch_mm_2 = pitch_nm_2 * 1e-6
@@ -171,7 +174,10 @@ def test_optical_preview_physical_cell_positioning():
         for c in range(w):
             x_w2 = (c + 0.5 - w / 2.0) * pitch_mm_2
             y_w2 = -(r + 0.5 - h / 2.0) * pitch_mm_2
-            expected_2 = simulate_cell_optical_color(1000, 0.0, world_pos=(x_w2, y_w2, 0.0))
+            expected_2 = simulate_cell_optical_color(
+                1000, 0.0, world_pos=(x_w2, y_w2, 0.0),
+                holopixel_diameter_nm=pitch_nm_2,
+            )
             np.testing.assert_allclose(preview_2[r, c], expected_2, atol=1e-6)
 
 

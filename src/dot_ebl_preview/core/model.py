@@ -28,7 +28,9 @@ class Design:
       - shape: (height, width) in pixels/cells.
       - pitch_nm: int, holopixel lattice pitch in nanometres (e.g. 20000 nm = 20 µm).
       - period_nm: NDArray[np.uint32], grating period per cell in integer nanometres.
-      - angle_deg: NDArray[np.float64], grating orientation angle in degrees (CCW from +X).
+      - angle_deg: NDArray[np.float64], CCW rotation of grating lines from +X
+        around +Z. At 0 degrees lines run along X and their reciprocal
+        (periodic) direction points along +Y.
       - active: NDArray[np.bool_], boolean activity mask (True = grating present).
       - exposure_mode: str, defaults to 'single_pixel_line' (width = 0 nm).
       - layer: int, GDSII layer (0 to 63, default 1).

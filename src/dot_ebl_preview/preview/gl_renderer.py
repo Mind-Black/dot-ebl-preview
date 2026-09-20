@@ -85,9 +85,9 @@ vec3 gamut_map(vec3 xyz) {
 
 vec3 to_linear_rgb(vec3 xyz) {
     return clamp(vec3(
-        dot(vec3(3.2404542, -0.9692660, 0.0556434), xyz),
-        dot(vec3(-1.5371385, 1.8760108, -0.2040259), xyz),
-        dot(vec3(-0.4985314, 0.0415560, 1.0572252), xyz)), 0.0, 1.0);
+        dot(vec3(3.2404542, -1.5371385, -0.4985314), xyz),
+        dot(vec3(-0.9692660, 1.8760108, 0.0415560), xyz),
+        dot(vec3(0.0556434, -0.2040259, 1.0572252), xyz)), 0.0, 1.0);
 }
 
 vec3 to_srgb(vec3 linear_rgb) {
@@ -126,39 +126,37 @@ void main() {
         pixel_color = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
-    vec3 unit_light = light_vector / light_length;
-    vec3 unit_cam = camera_vector / camera_length;
+    vec3 light = light_vector / light_length;
+    vec3 camera = camera_vector / camera_length;
+    float cos_inc = max(0.0, light.z);
+    if (cos_inc <= 0.0 || camera.z <= 0.0) {
+        pixel_color = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
 
-    float radius = max(0.0, u_aperture_mm) / camera_length;
-
-    vec3 unit_normal = vec3(0.0, 0.0, 1.0);
-    vec2 actual_light = unit_light.xy + unit_normal.xy;
-    vec2 actual_cam_xy = unit_cam.xy + unit_normal.xy;
-    float actual_cam_z_sq = max(0.0, 1.0 - dot(actual_cam_xy, actual_cam_xy));
-    vec3 actual_cam = vec3(actual_cam_xy, sqrt(actual_cam_z_sq));
-
-    float angle_rad = radians(cell.y + u_orientation_deg);
-    vec2 grating_vec = vec2(sin(angle_rad), cos(angle_rad));
-    float period_m = period_nm * 1.0e-9;
-    float s_factor = grating_vec.x / period_m;
-    float c_factor = grating_vec.y / period_m;
-
+    float angle = radians(cell.y + u_orientation_deg);
+    vec2 grating_vector = vec2(-sin(angle), cos(angle));
+    float detector_radius = max(0.0, u_aperture_mm) / camera_length;
     vec3 xyz = vec3(0.0);
 
     for (int index = 0; index < 77; ++index) {
-        float wl_m = (380.0 + 5.0 * float(index)) * 1.0e-9;
+        float wavelength_nm = 380.0 + 5.0 * float(index);
+        float sigma_diff = 0.5 * wavelength_nm / (u_pitch_mm * 1.0e6);
+        float sigma_sq = sigma_diff * sigma_diff + 0.25 * detector_radius * detector_radius;
+        if (sigma_sq <= 0.0) continue;
+        float ratio = detector_radius / sigma_diff;
+        float aligned_fraction = 1.0 - exp(-0.5 * ratio * ratio);
         vec3 spectrum = texelFetch(u_spectrum, index, 0).rgb;
 
         for (int order = -1; order <= 1; order += 2) {
-            float m = float(order);
-            vec2 alpha_xy = vec2(m * wl_m * s_factor - actual_light.x, -m * wl_m * c_factor - actual_light.y);
+            vec2 alpha_xy = -light.xy + float(order) * (wavelength_nm / period_nm) * grating_vector;
             float alpha12 = dot(alpha_xy, alpha_xy);
-            if (alpha12 >= 1.0) continue;
-            float alpha_z = sqrt(1.0 - alpha12);
+            if (alpha12 > 1.0) continue;
+            float alpha_z = sqrt(max(0.0, 1.0 - alpha12));
             vec3 alpha = vec3(alpha_xy, alpha_z);
-            if (distance(actual_cam, alpha) <= radius) {
-                xyz += spectrum;
-            }
+            float theta = acos(clamp(dot(alpha, camera), -1.0, 1.0));
+            float angular_weight = aligned_fraction * exp(-0.5 * theta * theta / sigma_sq);
+            xyz += spectrum * cos_inc * alpha_z * angular_weight;
         }
     }
 
