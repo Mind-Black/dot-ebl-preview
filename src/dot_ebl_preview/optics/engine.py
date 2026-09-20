@@ -81,8 +81,17 @@ class OpticalSimParams:
         float(36.0 * math.cos(math.radians(35.0))),
     )
     aperture_radius_factor: float = 5.0  # camera aperture radius in mm
+    source_radius_factor: float = 0.0  # light source physical radius in mm (0.0 = point source)
     apply_gamut_mapping: bool = True
     unity_mode: bool = False
+
+    @property
+    def aperture_mm(self) -> float:
+        return self.aperture_radius_factor
+
+    @property
+    def source_size_mm(self) -> float:
+        return self.source_radius_factor
 
 
 def simulate_cell_optical_color(
@@ -148,6 +157,7 @@ def simulate_cell_optical_color(
 
     # Both vectors are unit length in the substrate's local XYZ frame.
     detector_radius = max(0.0, params.aperture_radius_factor) / c_len
+    source_radius = max(0.0, params.source_radius_factor) / l_len
 
     period_m = period_nm * 1e-9
     holopixel_diameter_m = holopixel_diameter_nm * 1e-9
@@ -182,15 +192,16 @@ def simulate_cell_optical_color(
                 theta_dev = math.acos(cos_dev)
 
                 # Gaussian approximation to the finite circular cell's far-field
-                # profile, convolved with a Gaussian detector disk (RMS radius/2).
+                # profile, convolved with the finite light source extent and a
+                # Gaussian detector disk (RMS radius/2).
                 # The collected fraction approaches 1/D^2 in the far field;
                 # multiplying by another distance factor would count it twice.
                 sigma_diff = 0.5 * wl_m / holopixel_diameter_m
-                sigma_sq = sigma_diff * sigma_diff + 0.25 * detector_radius * detector_radius
+                sigma_beam_sq = sigma_diff * sigma_diff + 0.25 * source_radius * source_radius
+                sigma_sq = sigma_beam_sq + 0.25 * detector_radius * detector_radius
                 if sigma_sq > 0.0:
-                    aligned_fraction = -math.expm1(
-                        -0.5 * (detector_radius / sigma_diff) ** 2
-                    )
+                    ratio_sq = (detector_radius * detector_radius) / max(1e-12, sigma_beam_sq)
+                    aligned_fraction = -math.expm1(-0.5 * ratio_sq)
                     angular_weight = aligned_fraction * math.exp(
                         -0.5 * theta_dev * theta_dev / sigma_sq
                     )

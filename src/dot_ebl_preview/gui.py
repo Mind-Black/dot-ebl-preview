@@ -73,8 +73,14 @@ class DesignWindow:
         self.renderer_var = tk.StringVar(value="OpenGL (fast)")
         self.live_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Choose a design image or a saved .npz design.")
-        self.source_vars = self._point_vars(("0", "20.6487533", "29.4891314"), ("90", "55", "36"))
-        self.observer_vars = self._point_vars(("0", "0", "66"), ("0", "90", "66"))
+        self.source_vars = self._point_vars(
+            ("0", "20.6487533", "29.4891314"), ("90", "55", "36"),
+            extra={"size": "0.0"},
+        )
+        self.observer_vars = self._point_vars(
+            ("0", "0", "66"), ("0", "90", "66"),
+            extra={"aperture": "5.0"},
+        )
 
         self._build_window()
         for variable in (self.orientation_var, self.renderer_var, *self.source_vars.values(),
@@ -84,12 +90,17 @@ class DesignWindow:
         self.root.protocol("WM_DELETE_WINDOW", self._close)
 
     @staticmethod
-    def _point_vars(xyz: tuple[str, str, str], direction: tuple[str, str, str]) -> dict[str, tk.StringVar]:
-        return {
+    def _point_vars(xyz: tuple[str, str, str], direction: tuple[str, str, str],
+                    extra: dict[str, str] | None = None) -> dict[str, tk.StringVar]:
+        vars_dict = {
             "mode": tk.StringVar(value="XYZ"),
             **{key: tk.StringVar(value=value) for key, value in zip(("x", "y", "z"), xyz)},
             **{key: tk.StringVar(value=value) for key, value in zip(("az", "el", "distance"), direction)},
         }
+        if extra:
+            for key, value in extra.items():
+                vars_dict[key] = tk.StringVar(value=value)
+        return vars_dict
 
     def _button(self, parent: tk.Widget, label: str, command: Callable, **kwargs) -> ttk.Button:
         button = ttk.Button(parent, text=label, command=command, **kwargs)
@@ -140,8 +151,10 @@ class DesignWindow:
         ttk.Entry(scene, textvariable=self.orientation_var, width=12).grid(row=0, column=1, sticky=tk.E)
         self.orientation_slider = self._linked_slider(scene, 1, self.orientation_var, -180.0, 180.0)
         scene.columnconfigure(0, weight=1)
-        self._point_editor(scene, "Illumination", self.source_vars, 2)
-        self._point_editor(scene, "Observation", self.observer_vars, 3)
+        self._point_editor(scene, "Illumination", self.source_vars, 2,
+                           extra_caption="Source radius (mm)", extra_key="size", extra_range=(0.0, 30.0))
+        self._point_editor(scene, "Observation", self.observer_vars, 3,
+                           extra_caption="Aperture radius (mm)", extra_key="aperture", extra_range=(0.1, 30.0))
         ttk.Label(scene, text="Drag sliders or edit values. In the OpenGL pane: left drag moves the observer; right drag moves the light; wheel changes distance (Shift+wheel for light).",
                   wraplength=355).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
         ttk.Label(scene, text="Renderer").grid(row=5, column=0, sticky=tk.W, pady=(7, 0))
@@ -279,7 +292,9 @@ class DesignWindow:
         return slider
 
     def _point_editor(self, parent: ttk.LabelFrame, title: str,
-                      variables: dict[str, tk.StringVar], row: int) -> None:
+                      variables: dict[str, tk.StringVar], row: int,
+                      extra_caption: str = "", extra_key: str = "",
+                      extra_range: tuple[float, float] = (0.0, 30.0)) -> None:
         group = ttk.LabelFrame(parent, text=title, padding=5)
         group.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         ttk.Label(group, text="Specify by").grid(row=0, column=0, sticky=tk.W)
@@ -372,6 +387,12 @@ class DesignWindow:
                                    sync(b, s) if b["variable"] is v else None)
         variables["mode"].trace_add("write", configure_mode)
         configure_mode()
+
+        if extra_key and extra_key in variables:
+            ttk.Label(group, text=extra_caption).grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+            extra_entry = ttk.Entry(group, textvariable=variables[extra_key], width=9)
+            extra_entry.grid(row=8, column=2, padx=2, sticky="ew", pady=(6, 0))
+            self._linked_slider(group, 9, variables[extra_key], extra_range[0], extra_range[1], column=0, columnspan=3)
 
     def _browse(self) -> None:
         filename = filedialog.askopenfilename(
@@ -499,6 +520,10 @@ class DesignWindow:
                 for key, value in zip(("az", "el", "distance"), direction_from_position(position)):
                     variables[key].set(f"{value:.4f}")
             self.orientation_var.set(f"{scene.orientation_deg:.4f}")
+            if "size" in self.source_vars:
+                self.source_vars["size"].set(f"{scene.source_size_mm:.2f}")
+            if "aperture" in self.observer_vars:
+                self.observer_vars["aperture"].set(f"{scene.aperture_mm:.2f}")
         finally:
             self._from_viewer = False
 
@@ -592,10 +617,14 @@ class DesignWindow:
 
     def _scene_settings(self, report_error: bool) -> SceneSettings | None:
         try:
+            aperture = float(self.observer_vars["aperture"].get()) if "aperture" in self.observer_vars else 5.0
+            source_size = float(self.source_vars["size"].get()) if "size" in self.source_vars else 0.0
             return SceneSettings(
                 light_pos=self._point(self.source_vars),
                 camera_pos=self._point(self.observer_vars),
                 orientation_deg=float(self.orientation_var.get()),
+                aperture_mm=aperture,
+                source_size_mm=source_size,
             ).validated()
         except ValueError as error:
             if report_error:

@@ -32,6 +32,7 @@ uniform float u_orientation_deg;
 uniform vec3 u_light_pos;
 uniform vec3 u_camera_pos;
 uniform float u_aperture_mm;
+uniform float u_source_size_mm;
 uniform float u_light_y;
 uniform vec2 u_white_xy;
 out vec4 pixel_color;
@@ -137,15 +138,17 @@ void main() {
     float angle = radians(cell.y + u_orientation_deg);
     vec2 grating_vector = vec2(-sin(angle), cos(angle));
     float detector_radius = max(0.0, u_aperture_mm) / camera_length;
+    float source_radius = max(0.0, u_source_size_mm) / light_length;
     vec3 xyz = vec3(0.0);
 
     for (int index = 0; index < 77; ++index) {
         float wavelength_nm = 380.0 + 5.0 * float(index);
         float sigma_diff = 0.5 * wavelength_nm / (u_pitch_mm * 1.0e6);
-        float sigma_sq = sigma_diff * sigma_diff + 0.25 * detector_radius * detector_radius;
+        float sigma_beam_sq = sigma_diff * sigma_diff + 0.25 * source_radius * source_radius;
+        float sigma_sq = sigma_beam_sq + 0.25 * detector_radius * detector_radius;
         if (sigma_sq <= 0.0) continue;
-        float ratio = detector_radius / sigma_diff;
-        float aligned_fraction = 1.0 - exp(-0.5 * ratio * ratio);
+        float ratio_sq = (detector_radius * detector_radius) / max(1.0e-12, sigma_beam_sq);
+        float aligned_fraction = 1.0 - exp(-0.5 * ratio_sq);
         vec3 spectrum = texelFetch(u_spectrum, index, 0).rgb;
 
         for (int order = -1; order <= 1; order += 2) {
@@ -235,7 +238,7 @@ class ReusableGLRenderer:
             for name in (
                 "u_design", "u_spectrum", "u_size", "u_target_size", "u_pitch_mm",
                 "u_orientation_deg", "u_light_pos", "u_camera_pos", "u_aperture_mm",
-                "u_light_y", "u_white_xy",
+                "u_source_size_mm", "u_light_y", "u_white_xy",
             )
         }
 
@@ -255,7 +258,8 @@ class ReusableGLRenderer:
         self.closed = False
 
     def render(self, design: Design, light_pos: tuple[float, float, float],
-               camera_pos: tuple[float, float, float], orientation_deg: float = 0.0) -> Image.Image:
+               camera_pos: tuple[float, float, float], orientation_deg: float = 0.0,
+               aperture_mm: float = 5.0, source_size_mm: float = 0.0) -> Image.Image:
         import glfw
         from OpenGL import GL
 
@@ -318,7 +322,8 @@ class ReusableGLRenderer:
         GL.glUniform1f(self.uniforms["u_orientation_deg"], orientation_deg)
         GL.glUniform3f(self.uniforms["u_light_pos"], *light_pos)
         GL.glUniform3f(self.uniforms["u_camera_pos"], *camera_pos)
-        GL.glUniform1f(self.uniforms["u_aperture_mm"], get_optical_preset("corrected").aperture_radius_factor)
+        GL.glUniform1f(self.uniforms["u_aperture_mm"], aperture_mm)
+        GL.glUniform1f(self.uniforms["u_source_size_mm"], source_size_mm)
         GL.glUniform1f(self.uniforms["u_light_y"], float(self.light_xyz[1]))
         GL.glUniform2f(self.uniforms["u_white_xy"], *self.white_xy)
 
@@ -370,7 +375,8 @@ def get_thread_renderer() -> ReusableGLRenderer:
 
 
 def render_opengl_preview(design: Design, light_pos: tuple[float, float, float],
-                          camera_pos: tuple[float, float, float], orientation_deg: float = 0.0) -> Image.Image:
+                          camera_pos: tuple[float, float, float], orientation_deg: float = 0.0,
+                          aperture_mm: float = 5.0, source_size_mm: float = 0.0) -> Image.Image:
     """Render the corrected spectral preview using a reusable hidden OpenGL context."""
     renderer = get_thread_renderer()
-    return renderer.render(design, light_pos, camera_pos, orientation_deg)
+    return renderer.render(design, light_pos, camera_pos, orientation_deg, aperture_mm, source_size_mm)

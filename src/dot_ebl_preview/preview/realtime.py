@@ -313,7 +313,7 @@ class RealtimeViewer:
                 for name in (
                     "u_design", "u_spectrum", "u_size", "u_target_size", "u_pitch_mm",
                     "u_orientation_deg", "u_light_pos", "u_camera_pos", "u_aperture_mm",
-                    "u_light_y", "u_white_xy",
+                    "u_source_size_mm", "u_light_y", "u_white_xy",
                 )
             }
 
@@ -323,8 +323,6 @@ class RealtimeViewer:
             GL.glUniform1i(uniforms["u_spectrum"], 1)
             GL.glUniform2i(uniforms["u_size"], w, h)
             GL.glUniform1f(uniforms["u_pitch_mm"], self.design.pitch_nm * 1.0e-6)
-            GL.glUniform1f(uniforms["u_aperture_mm"],
-                           get_optical_preset("corrected").aperture_radius_factor)
             GL.glUniform1f(uniforms["u_light_y"], float(light_xyz[1]))
             GL.glUniform2f(uniforms["u_white_xy"], *white_xy)
 
@@ -340,6 +338,8 @@ class RealtimeViewer:
                 GL.glUniform1f(uniforms["u_orientation_deg"], scene.orientation_deg)
                 GL.glUniform3f(uniforms["u_light_pos"], *scene.light_pos)
                 GL.glUniform3f(uniforms["u_camera_pos"], *scene.camera_pos)
+                GL.glUniform1f(uniforms["u_aperture_mm"], scene.aperture_mm)
+                GL.glUniform1f(uniforms["u_source_size_mm"], scene.source_size_mm)
                 GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
 
             def read_frame(fbo: int, size: tuple[int, int]) -> Image.Image:

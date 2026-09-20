@@ -90,6 +90,8 @@ def main(args: Optional[list[str]] = None) -> int:
     p_preview.add_argument("--preset", default="corrected", choices=["corrected", "glsl-legacy", "unity-hsv"])
     p_preview.add_argument("--profile", default="rgb8-indexed-v1", choices=["rgb8-indexed-v1", "rgb16-fixed-v1"])
     p_preview.add_argument("--pitch-um", type=float, default=20.0)
+    p_preview.add_argument("--aperture-mm", type=float, default=5.0, help="Observer aperture radius in mm (default: 5.0)")
+    p_preview.add_argument("--light-size-mm", type=float, default=0.0, help="Light source physical radius in mm (default: 0.0)")
 
     parsed = parser.parse_args(args)
 
@@ -152,7 +154,15 @@ def main(args: Optional[list[str]] = None) -> int:
         else:
             design = build_design(in_path, encoding_profile=parsed.profile, pitch_nm=pitch_nm)
 
-        out_file = render_preview_to_file(design, parsed.output, preset=parsed.preset)
+        from dataclasses import replace
+        from dot_ebl_preview.optics.presets import get_optical_preset
+
+        params = replace(
+            get_optical_preset(parsed.preset),
+            aperture_radius_factor=parsed.aperture_mm,
+            source_radius_factor=parsed.light_size_mm,
+        )
+        out_file = render_preview_to_file(design, parsed.output, preset=parsed.preset, params=params)
         print(f"Optical preview saved to {out_file}")
         return 0
 

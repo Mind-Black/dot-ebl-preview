@@ -106,13 +106,19 @@ class SceneSettings:
     light_pos: tuple[float, float, float] = (0.0, 20.6487533, 29.4891314)
     camera_pos: tuple[float, float, float] = (0.0, 0.0, 66.0)
     orientation_deg: float = 0.0
+    aperture_mm: float = 5.0
+    source_size_mm: float = 0.0
 
     def validated(self) -> "SceneSettings":
-        values = (*self.light_pos, *self.camera_pos, self.orientation_deg)
+        values = (*self.light_pos, *self.camera_pos, self.orientation_deg, self.aperture_mm, self.source_size_mm)
         if not all(math.isfinite(value) for value in values):
-            raise ValueError("Scene coordinates and orientation must be finite numbers.")
+            raise ValueError("Scene coordinates, orientation, aperture and source size must be finite numbers.")
         if self.light_pos == (0.0, 0.0, 0.0) or self.camera_pos == (0.0, 0.0, 0.0):
             raise ValueError("The source and observer must be away from the design center.")
+        if self.aperture_mm < 0.0:
+            raise ValueError("Observer aperture must be non-negative.")
+        if self.source_size_mm < 0.0:
+            raise ValueError("Light source physical size must be non-negative.")
         return self
 
 
@@ -143,7 +149,13 @@ def direction_from_position(position: tuple[float, float, float]) -> tuple[float
 def render_scene(design: Design, settings: SceneSettings) -> Image.Image:
     """Run the CPU reference algorithm with the selected source, observer and rotation."""
     settings.validated()
-    params = replace(get_optical_preset("corrected"), light_pos=settings.light_pos, camera_pos=settings.camera_pos)
+    params = replace(
+        get_optical_preset("corrected"),
+        light_pos=settings.light_pos,
+        camera_pos=settings.camera_pos,
+        aperture_radius_factor=settings.aperture_mm,
+        source_radius_factor=settings.source_size_mm,
+    )
     rotated = replace(design, angle_deg=design.angle_deg + settings.orientation_deg)
     return render_preview_image(rotated, preset="corrected", params=params)
 
@@ -154,8 +166,12 @@ def render_scene_gpu(design: Design, settings: SceneSettings) -> Image.Image:
     from dot_ebl_preview.preview.gl_renderer import render_opengl_preview
 
     return render_opengl_preview(
-        design, light_pos=settings.light_pos, camera_pos=settings.camera_pos,
+        design,
+        light_pos=settings.light_pos,
+        camera_pos=settings.camera_pos,
         orientation_deg=settings.orientation_deg,
+        aperture_mm=settings.aperture_mm,
+        source_size_mm=settings.source_size_mm,
     )
 
 
