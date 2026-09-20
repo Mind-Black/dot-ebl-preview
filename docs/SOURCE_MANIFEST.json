@@ -1,0 +1,198 @@
+{
+  "captured_date": "2026-09-20",
+  "learning_shaders_commit": "b747079257ab662e4869af72701ff78c8688db39",
+  "holtida_ebl_commit": "1cf838cd221f41cb2ac6d47f5e4f80c655a3b131",
+  "raith_commit": "946888a8aa6b634cf2e4db3164188acc5f2f7f1e",
+  "raith_source": "https://github.com/ahryciw/Raith_GDSII",
+  "sources": [
+    {
+      "project": "learning-shaders",
+      "path": "shaders\\vertex.txt",
+      "bytes": 6316,
+      "sha256": "ce144214bb347df798bfc7f8d57b2313597fc543a1b1db3dd9bfc4ae25936ac5"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "shaders\\imported_holo-app\\HologramShader.shader",
+      "bytes": 15361,
+      "sha256": "e5582713cb8cedda42549809336f47f6feae0d7037f77ef7dd8f84596639475d"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "shaders\\fragment.txt",
+      "bytes": 300,
+      "sha256": "3a296e7bc4a346d4f8840b717ed34e9ec707190e0b3e456a03a9f3c070b88479"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "objects\\cube.obj",
+      "bytes": 648,
+      "sha256": "9ce8f3f2f4a27426c9bc8fa10a105631bcbfab5ab6f9d1909ed2233e53c23794"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "main.py",
+      "bytes": 14449,
+      "sha256": "946d4dc4432b1fcb194b02651831a42bb1db038b714e7ba15622a6ab46a561e9"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "load_tables.py",
+      "bytes": 5995,
+      "sha256": "6c495fb118ef10d78b59fdbe544eefcf4cc259bb8f46a790cad604a97f85a3ed"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "load_image.py",
+      "bytes": 6907,
+      "sha256": "607eee6444f4c08be83daf3c9b74d9f734d7c2a032faf3b45716333e5923fe73"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\sekmes_pinigelis_01.png",
+      "bytes": 489534,
+      "sha256": "f201bc54513a2d43a8a96e67e66968f2da8e820a449aeb93dfe0467dde47e267"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\minialga.png",
+      "bytes": 17050,
+      "sha256": "12d8139218ff7e19b4fda8f3208209e02e595f8f252f67d629c5b5723d812f3c"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\logo.png",
+      "bytes": 203900,
+      "sha256": "252a419fbcc39b73ecacc809661f3af84ed2b8e7f8c4c8bb175da8189a8bb0da"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\KTU Logo Square.png",
+      "bytes": 17105,
+      "sha256": "ff95853d6904a1e3fd7a0ac013948dc2a84c78a846e19bafc49f325eaecc6fee"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\image1.png",
+      "bytes": 32878,
+      "sha256": "3604d55a770661cd0f2bd5a9a1a5d95b0a9cc2052024c9059a937457879192c3"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\image.png",
+      "bytes": 2512,
+      "sha256": "b13b3a06b016c5bb638b9e638286f908e1fe3e1202c5f0acf3d57dd309282f7d"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\gr_1024.png",
+      "bytes": 276041,
+      "sha256": "e36f8aa3d25cd4af2b3a4a12d7fddd3b6315cf01340797c8949b2dd679adfd33"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\GR1_2.png",
+      "bytes": 102682,
+      "sha256": "17e7812c3b6a59b04bc3505c6a1d82b6042300cd18ad23a98f58b3adcaae5dcf"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\GR1_1.png",
+      "bytes": 8761,
+      "sha256": "8fd015f99767df31f41ece5691160bc19e779214cec570409e907f0ba8b4459e"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\GR1.png",
+      "bytes": 8196,
+      "sha256": "7456471f8a6c369684e3517101986b3fdca34826e69fcc26206d91c65db2e7e9"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "images\\amt_design_01.png",
+      "bytes": 77822,
+      "sha256": "407efdb602478df4383deaa976b85f39639f89c15de0e2fd42ecdbe5e62bbdf1"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "gfx\\dog2.png",
+      "bytes": 2503406,
+      "sha256": "91611a879af472a55a06ae80f7ce3c74506139b1be050cfd66da47ed488db314"
+    },
+    {
+      "project": "learning-shaders",
+      "path": "gfx\\dog1.png",
+      "bytes": 2324459,
+      "sha256": "e0580438e34250b5afc444fcc645a1c262060d3b19587c80f8dd5834895989fb"
+    },
+    {
+      "project": "learning-shaders",
+      "path": ".vscode\\settings.json",
+      "bytes": 135,
+      "sha256": "b48be4a0808834c155006634c1f3e4c32f577ce9e52b30ee608372c4d89850cb"
+    },
+    {
+      "project": "learning-shaders",
+      "path": ".gitignore",
+      "bytes": 3238,
+      "sha256": "93c7be0ce8f47d89d762394b3821e837918182d90d5c701811f116af7fd8655d"
+    },
+    {
+      "project": "learning-shaders",
+      "path": ".gitattributes",
+      "bytes": 68,
+      "sha256": "d8fb0de4792538f93822b2c0d235604921299d5e54a3d6ec7a6cb34536e8bf1e"
+    },
+    {
+      "project": "Holtida-EBL",
+      "path": "resources\\ProgressBar.py",
+      "bytes": 1132,
+      "sha256": "6eaf5c1b20b057b375d62208732497de9d17480bf0ae5ef344c92dccb19311ce"
+    },
+    {
+      "project": "Holtida-EBL",
+      "path": "main.py",
+      "bytes": 8854,
+      "sha256": "70b64ba9bafafe6e46796709a64b12436e014ce5013ff0a9869e391eb12e874d"
+    },
+    {
+      "project": "Holtida-EBL",
+      "path": ".vscode\\settings.json",
+      "bytes": 135,
+      "sha256": "b48be4a0808834c155006634c1f3e4c32f577ce9e52b30ee608372c4d89850cb"
+    },
+    {
+      "project": "Holtida-EBL",
+      "path": ".gitignore",
+      "bytes": 31,
+      "sha256": "84eb70538ff5dac8fdba774a298e2169520f4d74bfce66e57c5c54ba79e03aa4"
+    }
+  ],
+  "raith_snapshot": [
+    {
+      "path": "LICENSE",
+      "bytes": 16726,
+      "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+    },
+    {
+      "path": "Raith_element.m",
+      "bytes": 172628,
+      "sha256": "7c3b7cc65f21c14be2a462fc5a6d16949fb2a90fc14b2b1bb4d9a37b085cbb88"
+    },
+    {
+      "path": "Raith_library.m",
+      "bytes": 40081,
+      "sha256": "2630b3705506f6c3b0dc49b3784fa42b39aa3265bfe9d82fcb7b4459ea590ebc"
+    },
+    {
+      "path": "Raith_positionlist.m",
+      "bytes": 24640,
+      "sha256": "5c4223cca62c06a67f876819c32b1a3f1f6ae70f23ed4466d7d1200ccc11fd2b"
+    },
+    {
+      "path": "Raith_structure.m",
+      "bytes": 6706,
+      "sha256": "5ae9b7d339ce87061af908952a91e3264fd13895876f157b10048280299e7dfc"
+    }
+  ]
+}
