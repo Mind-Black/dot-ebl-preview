@@ -10,13 +10,17 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable
 
+import numpy as np
 from PIL import Image, ImageTk
 
 from dot_ebl_preview.core.model import Design
 from dot_ebl_preview.gui_logic import (
-    INPUT_FORMATS, SceneSettings, direction_from_position, load_gui_design, parameter_counts,
+    INPUT_FORMATS, SceneSettings, apply_parameter_edit, direction_from_position,
+    encode_gui_design_image, export_gui_bundle, load_gui_design, parameter_counts,
     parameter_map, position_from_direction, render_scene, render_scene_gpu, save_gds,
+    save_gui_design_image,
 )
+from dot_ebl_preview.io.images import load_image_rgb
 from dot_ebl_preview.preview.realtime import RealtimeViewer
 
 
@@ -53,6 +57,13 @@ class DesignWindow:
         self._from_viewer = False
         self._capture_token = 0
         self._capture_actions: dict[int, tuple[str, str | None]] = {}
+        self.source_raw: np.ndarray | None = None
+        self.original_source_raw: np.ndarray | None = None
+        self.original_design: Design | None = None
+        self._inline_entry: ttk.Entry | None = None
+        self._table_selected_vars: dict[str, tk.StringVar] = {}
+        self._table_entry_vars: dict[str, tk.StringVar] = {}
+        self._table_data: dict[str, list[tuple[float, int]]] = {"gratings": [], "angles": []}
         self.point_sliders: dict[str, list[ttk.Scale]] = {}
 
         self.path_var = tk.StringVar()
@@ -143,7 +154,9 @@ class DesignWindow:
 
         output = ttk.LabelFrame(form, text="4  Output", padding=8)
         output.pack(fill=tk.X, pady=(0, 8))
-        self._button(output, "Save GDS...", self._save_gds).pack(fill=tk.X)
+        self._button(output, "Save design image PNG...", self._save_design_image).pack(fill=tk.X)
+        self._button(output, "Save GDS...", self._save_gds).pack(fill=tk.X, pady=(5, 0))
+        self._button(output, "Export fabrication bundle...", self._export_bundle).pack(fill=tk.X, pady=(5, 0))
         self._button(output, "Save preview PNG...", self._save_preview).pack(fill=tk.X, pady=(5, 0))
 
         right = ttk.Frame(outer)
@@ -183,17 +196,59 @@ class DesignWindow:
         ttk.Label(status, textvariable=self.status_var, wraplength=900).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _parameter_table(self, title: str, kind: str) -> ttk.Treeview:
-        holder = ttk.Frame(self.parameter_tabs)
+        holder = ttk.Frame(self.parameter_tabs, padding=2)
         self.parameter_tabs.add(holder, text=title)
-        table = ttk.Treeview(holder, columns=("value", "count"), show="headings", height=6)
+
+        hint = ttk.Label(holder, text="Double-click a value to edit inline, or edit below:",
+                         font=("Segoe UI", 8), foreground="#5c6b73")
+        hint.pack(anchor=tk.W, pady=(0, 2))
+
+        table_frame = ttk.Frame(holder)
+        table_frame.pack(fill=tk.BOTH, expand=True)
+
+        table = ttk.Treeview(table_frame, columns=("value", "count"), show="headings", height=5)
         table.heading("value", text=title)
         table.heading("count", text="Cells")
         table.column("value", width=150, stretch=True)
         table.column("count", width=90, stretch=False, anchor=tk.E)
-        scroll = ttk.Scrollbar(holder, orient=tk.VERTICAL, command=table.yview)
+        scroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=table.yview)
         table.configure(yscrollcommand=scroll.set)
         table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        edit_row = ttk.Frame(holder)
+        edit_row.pack(fill=tk.X, pady=(4, 0))
+
+        selected_var = tk.StringVar(value="—")
+        new_val_var = tk.StringVar()
+        self._table_selected_vars[kind] = selected_var
+        self._table_entry_vars[kind] = new_val_var
+
+        ttk.Label(edit_row, text="Selected:").pack(side=tk.LEFT)
+        ttk.Label(edit_row, textvariable=selected_var, font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(2, 6))
+        ttk.Label(edit_row, text="New:").pack(side=tk.LEFT)
+        new_entry = ttk.Entry(edit_row, textvariable=new_val_var, width=8)
+        new_entry.pack(side=tk.LEFT, padx=(2, 4))
+
+        apply_btn = self._button(
+            edit_row, "Apply",
+            lambda k=kind, t=table: self._apply_table_edit_from_bar(k, t),
+            width=5,
+        )
+        apply_btn.pack(side=tk.LEFT, padx=2)
+        new_entry.bind("<Return>", lambda _e, k=kind, t=table: self._apply_table_edit_from_bar(k, t))
+
+        revert_btn = self._button(
+            edit_row, "Revert all",
+            self._revert_to_original,
+            width=9,
+        )
+        revert_btn.pack(side=tk.RIGHT)
+
+        table.bind("<<TreeviewSelect>>", lambda _e, k=kind, t=table: self._table_row_selected(k, t))
+        table.bind("<Double-1>", lambda event, k=kind, t=table: self._table_double_clicked(event, k, t))
+        table.bind("<Return>", lambda _e, k=kind, t=table: self._table_enter_pressed(k, t))
+
         return table
 
     def _linked_slider(self, parent: tk.Widget, row: int, variable: tk.StringVar,
@@ -460,30 +515,53 @@ class DesignWindow:
 
         def work():
             design = load_gui_design(path, image_format, pitch)
+            source_raw = None
             source_image = None
             if Path(path).suffix.lower() != ".npz":
-                with Image.open(path) as source:
-                    source_image = source.convert("RGB")
-            return (design, source_image, parameter_counts(design, "gratings"),
+                source_raw = load_image_rgb(path)
+                if source_raw.dtype == np.uint16:
+                    vis = np.zeros((*design.shape, 3), dtype=np.uint8)
+                    vis[:, :, 0] = np.clip(source_raw[:, :, 0] >> 4, 0, 255).astype(np.uint8)
+                    vis[:, :, 1] = np.clip(source_raw[:, :, 1] >> 8, 0, 255).astype(np.uint8)
+                    vis[:, :, 2] = np.where(design.active, 255, 0).astype(np.uint8)
+                    source_image = Image.fromarray(vis, mode="RGB")
+                else:
+                    source_image = Image.fromarray(source_raw, mode="RGB")
+            else:
+                source_raw, source_image = encode_gui_design_image(design, image_format)
+            return (design, source_raw, source_image, parameter_counts(design, "gratings"),
                     parameter_counts(design, "angles"), parameter_map(design, "gratings"),
                     parameter_map(design, "angles"), Path(path).name)
 
         self._stop_viewer()
         self._cancel_preview_request()
         self.design = None
+        self.original_design = None
+        self.source_raw = None
+        self.original_source_raw = None
+        self.source_image = None
         self.preview_image = None
         for key in self.panel_images:
             self._set_panel(key, None, "Loading design..." if key != "preview" else "Waiting for OpenGL render...")
         self._submit(work, self._loaded, "Loading design and finding parameters...")
 
     def _loaded(self, result: object) -> None:
-        design, source_image, periods, angles, period_image, angle_image, filename = result
+        design, source_raw, source_image, periods, angles, period_image, angle_image, filename = result
         self.design = design
+        self.original_design = design.copy()
+        self.source_raw = source_raw.copy() if source_raw is not None else None
+        self.original_source_raw = source_raw.copy() if source_raw is not None else None
+        self.source_image = source_image
         self.preview_image = None
+        self._table_data["gratings"] = periods
+        self._table_data["angles"] = angles
         for table, entries in ((self.period_table, periods), (self.angle_table, angles)):
             table.delete(*table.get_children())
             for value, count in entries:
                 table.insert("", tk.END, values=(f"{value:g}", f"{count:,}"))
+        for k in ("gratings", "angles"):
+            self._table_selected_vars[k].set("—")
+            self._table_entry_vars[k].set("")
         self.summary_var.set(
             f"{design.width} × {design.height} cells  •  {design.active_count:,} active  •  "
             f"{len(periods)} periods  •  {len(angles)} angles  •  pitch {design.pitch_nm / 1000:g} µm"
@@ -684,6 +762,277 @@ class DesignWindow:
             self.preview_image.save(filename, format="PNG")
             self.status_var.set(f"Saved diffraction preview: {filename}")
 
+    def _save_design_image(self) -> None:
+        if self.design is None:
+            self._need_design()
+            return
+        initial = f"{Path(self.path_var.get()).stem or 'design'}_modified.png"
+        filename = filedialog.asksaveasfilename(
+            title="Save design image", defaultextension=".png",
+            filetypes=[("PNG image", "*.png"), ("All files", "*.*")], initialfile=initial,
+        )
+        if filename:
+            if self.source_raw is None:
+                self.source_raw, self.source_image = encode_gui_design_image(
+                    self.design, self.format_var.get(), self.original_source_raw,
+                )
+            raw = self.source_raw
+            self._submit(lambda: save_gui_design_image(filename, raw), self._design_image_saved, "Saving design image...")
+
+    def _design_image_saved(self, path: object) -> None:
+        self.status_var.set(f"Saved design image: {path}")
+        messagebox.showinfo("Design image saved", f"Saved design image to:\n{path}", parent=self.root)
+
+    def _export_bundle(self) -> None:
+        if self.design is None:
+            self._need_design()
+            return
+        initial = Path(self.path_var.get()).stem or "HOLOGRAM"
+        output_dir = filedialog.askdirectory(
+            title="Select destination directory for fabrication bundle",
+            initialdir=str(Path(self.path_var.get()).parent or "."),
+        )
+        if output_dir:
+            design = self.design
+            self._submit(
+                lambda: export_gui_bundle(design, output_dir, layout_name=initial),
+                self._bundle_exported,
+                "Exporting fabrication bundle (GDS, texts, NPZ, manifest, previews)...",
+            )
+
+    def _bundle_exported(self, path: object) -> None:
+        self.status_var.set(f"Exported fabrication bundle: {path}")
+        messagebox.showinfo("Fabrication bundle exported", f"Saved complete fabrication bundle to:\n{path}", parent=self.root)
+
+    def _table_row_selected(self, kind: str, table: ttk.Treeview) -> None:
+        selected = table.selection()
+        if not selected:
+            self._table_selected_vars[kind].set("—")
+            self._table_entry_vars[kind].set("")
+            return
+        item_id = selected[0]
+        vals = table.item(item_id, "values")
+        if vals:
+            current_val = vals[0]
+            unit = " µm" if kind == "gratings" else "°"
+            self._table_selected_vars[kind].set(f"{current_val}{unit}")
+            self._table_entry_vars[kind].set(current_val)
+
+    def _table_double_clicked(self, event: tk.Event, kind: str, table: ttk.Treeview) -> None:
+        region = table.identify("region", event.x, event.y)
+        if region not in ("tree", "cell"):
+            return
+        column = table.identify_column(event.x)
+        if column not in ("#1", "#0"):
+            return
+        item = table.identify_row(event.y)
+        if not item:
+            return
+        self._start_inline_editing(kind, table, item)
+
+    def _table_enter_pressed(self, kind: str, table: ttk.Treeview) -> None:
+        selected = table.selection()
+        if selected:
+            self._start_inline_editing(kind, table, selected[0])
+
+    def _start_inline_editing(self, kind: str, table: ttk.Treeview, item: str) -> None:
+        if self._inline_entry is not None:
+            try:
+                self._inline_entry.destroy()
+            except Exception:
+                pass
+            self._inline_entry = None
+
+        bbox = table.bbox(item, "#1")
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        vals = table.item(item, "values")
+        if not vals:
+            return
+        old_val_str = str(vals[0])
+
+        entry_var = tk.StringVar(value=old_val_str)
+        entry = ttk.Entry(table, textvariable=entry_var)
+        entry.place(x=x, y=y, width=w, height=h)
+        entry.focus_set()
+        entry.selection_range(0, tk.END)
+        self._inline_entry = entry
+
+        committed = [False]
+
+        def commit(*_args) -> None:
+            if committed[0]:
+                return
+            committed[0] = True
+            new_text = entry_var.get().strip()
+            try:
+                entry.destroy()
+            except Exception:
+                pass
+            self._inline_entry = None
+            if new_text and new_text != old_val_str:
+                self._update_parameter_value(kind, old_val_str, new_text)
+
+        def cancel(*_args) -> None:
+            if committed[0]:
+                return
+            committed[0] = True
+            try:
+                entry.destroy()
+            except Exception:
+                pass
+            self._inline_entry = None
+
+        entry.bind("<Return>", commit)
+        entry.bind("<Escape>", cancel)
+        entry.bind("<FocusOut>", commit)
+
+    def _apply_table_edit_from_bar(self, kind: str, table: ttk.Treeview) -> None:
+        selected = table.selection()
+        if not selected:
+            messagebox.showinfo("No selection", f"Select a row in the {kind} table first.", parent=self.root)
+            return
+        item_id = selected[0]
+        vals = table.item(item_id, "values")
+        if not vals:
+            return
+        old_val_str = str(vals[0])
+        new_val_str = self._table_entry_vars[kind].get().strip()
+        if not new_val_str:
+            return
+        self._update_parameter_value(kind, old_val_str, new_val_str)
+
+    def _update_parameter_value(self, kind: str, old_val_str: str, new_val_str: str) -> None:
+        if self.design is None:
+            self._need_design()
+            return
+        try:
+            old_val = float(old_val_str)
+            new_val = float(new_val_str)
+        except ValueError:
+            messagebox.showerror("Invalid number", f"'{new_val_str}' is not a valid number.", parent=self.root)
+            return
+
+        try:
+            self.design, count = apply_parameter_edit(self.design, kind, old_val, new_val)
+        except ValueError as err:
+            messagebox.showerror("Invalid parameter", str(err), parent=self.root)
+            return
+
+        if count == 0:
+            return
+
+        self._refresh_after_parameter_change(kind, old_val, new_val, count)
+
+    def _refresh_after_parameter_change(self, kind: str, old_val: float, new_val: float, count: int) -> None:
+        if self.design is None:
+            return
+
+        periods = parameter_counts(self.design, "gratings")
+        angles = parameter_counts(self.design, "angles")
+        self._table_data["gratings"] = periods
+        self._table_data["angles"] = angles
+
+        for table, entries in ((self.period_table, periods), (self.angle_table, angles)):
+            table.delete(*table.get_children())
+            for val, cnt in entries:
+                table.insert("", tk.END, values=(f"{val:g}", f"{cnt:,}"))
+
+        for k in ("gratings", "angles"):
+            self._table_selected_vars[k].set("—")
+            self._table_entry_vars[k].set("")
+
+        self.summary_var.set(
+            f"{self.design.width} × {self.design.height} cells  •  {self.design.active_count:,} active  •  "
+            f"{len(periods)} periods  •  {len(angles)} angles  •  pitch {self.design.pitch_nm / 1000:g} µm"
+        )
+
+        self.source_raw, self.source_image = encode_gui_design_image(
+            self.design, self.format_var.get(), self.original_source_raw,
+        )
+        self._set_panel(
+            "source", self.source_image,
+            f"Modified design image ({self.format_var.get()}) • {self.design.width} × {self.design.height} pixels",
+        )
+
+        period_image = parameter_map(self.design, "gratings")
+        span_p = f"{periods[0][0]:g} to {periods[-1][0]:g} µm" if periods else "no active cells"
+        self._set_panel("periods", period_image, f"{span_p} • dark = inactive")
+
+        angle_image = parameter_map(self.design, "angles")
+        span_a = f"{angles[0][0]:g} to {angles[-1][0]:g} °" if angles else "no active cells"
+        self._set_panel("angles", angle_image, f"{span_a} • dark = inactive")
+
+        self._stop_viewer()
+        if self.live_var.get() and self.renderer_var.get() == "OpenGL (fast)":
+            self._scene_changed()
+        elif self.renderer_var.get() == "CPU reference":
+            settings = self._scene_settings(report_error=False)
+            if settings:
+                self._cancel_preview_request()
+                self._queue_preview(settings)
+        else:
+            self._scene_changed()
+
+        unit = "µm" if kind == "gratings" else "°"
+        self.status_var.set(
+            f"Updated {kind}: {old_val:g} {unit} → {new_val:g} {unit} ({count:,} cells). All 4 graphs updated."
+        )
+
+    def _revert_to_original(self) -> None:
+        if self.original_design is None:
+            return
+        self.design = self.original_design.copy()
+        if self.original_source_raw is not None:
+            self.source_raw = self.original_source_raw.copy()
+            if self.source_raw.dtype == np.uint16:
+                vis = np.zeros((*self.design.shape, 3), dtype=np.uint8)
+                vis[:, :, 0] = np.clip(self.source_raw[:, :, 0] >> 4, 0, 255).astype(np.uint8)
+                vis[:, :, 1] = np.clip(self.source_raw[:, :, 1] >> 8, 0, 255).astype(np.uint8)
+                vis[:, :, 2] = np.where(self.design.active, 255, 0).astype(np.uint8)
+                self.source_image = Image.fromarray(vis, mode="RGB")
+            else:
+                self.source_image = Image.fromarray(self.source_raw, mode="RGB")
+        else:
+            self.source_raw, self.source_image = encode_gui_design_image(
+                self.design, self.format_var.get(),
+            )
+
+        periods = parameter_counts(self.design, "gratings")
+        angles = parameter_counts(self.design, "angles")
+        self._table_data["gratings"] = periods
+        self._table_data["angles"] = angles
+
+        for table, entries in ((self.period_table, periods), (self.angle_table, angles)):
+            table.delete(*table.get_children())
+            for val, cnt in entries:
+                table.insert("", tk.END, values=(f"{val:g}", f"{cnt:,}"))
+
+        for k in ("gratings", "angles"):
+            self._table_selected_vars[k].set("—")
+            self._table_entry_vars[k].set("")
+
+        self.summary_var.set(
+            f"{self.design.width} × {self.design.height} cells  •  {self.design.active_count:,} active  •  "
+            f"{len(periods)} periods  •  {len(angles)} angles  •  pitch {self.design.pitch_nm / 1000:g} µm"
+        )
+
+        filename = Path(self.path_var.get()).name if self.path_var.get() else "Design"
+        self._set_panel("source", self.source_image, f"{filename} • {self.design.width} × {self.design.height} pixels")
+
+        period_image = parameter_map(self.design, "gratings")
+        span_p = f"{periods[0][0]:g} to {periods[-1][0]:g} µm" if periods else "no active cells"
+        self._set_panel("periods", period_image, f"{span_p} • dark = inactive")
+
+        angle_image = parameter_map(self.design, "angles")
+        span_a = f"{angles[0][0]:g} to {angles[-1][0]:g} °" if angles else "no active cells"
+        self._set_panel("angles", angle_image, f"{span_a} • dark = inactive")
+
+        self._stop_viewer()
+        self._scene_changed()
+        self.status_var.set("Reverted all parameters to originally imported design. All 4 graphs updated.")
+
     def _need_design(self) -> None:
         messagebox.showinfo("No design", "Load a design image first.", parent=self.root)
 
@@ -746,6 +1095,12 @@ class DesignWindow:
 
     def _close(self) -> None:
         self.closed = True
+        if getattr(self, "_inline_entry", None) is not None:
+            try:
+                self._inline_entry.destroy()
+            except Exception:
+                pass
+            self._inline_entry = None
         self._cancel_preview_request()
         self._stop_viewer()
         self.worker.shutdown(wait=False, cancel_futures=True)

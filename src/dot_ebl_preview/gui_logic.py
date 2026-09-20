@@ -13,10 +13,15 @@ import numpy as np
 from PIL import Image
 
 from dot_ebl_preview.api import build_design, build_layout
-from dot_ebl_preview.core.model import Design
+from dot_ebl_preview.core.encoding import RGB8IndexedProfile, RGB16FixedProfile
+from dot_ebl_preview.core.model import Design, OperationRecord
 from dot_ebl_preview.io.artifacts import load_design_artifact
-from dot_ebl_preview.io.legacy_hls import import_legacy_hls
-from dot_ebl_preview.io.legacy_unity import import_legacy_unity_hsv
+from dot_ebl_preview.io.images import save_image_rgb
+from dot_ebl_preview.io.legacy_hls import import_legacy_hls, rgb_to_opencv_hls
+from dot_ebl_preview.io.legacy_unity import (
+    UNITY_LASER_HUES, UNITY_PERIOD_REAL_NM, import_legacy_unity_hsv,
+)
+from dot_ebl_preview.jobs.bundle import stage_and_export_bundle
 from dot_ebl_preview.optics.presets import get_optical_preset
 from dot_ebl_preview.preview.renderer import render_preview_image
 
@@ -168,3 +173,194 @@ def save_gds(design: Design, destination: str | Path) -> Path:
     finally:
         temp.unlink(missing_ok=True)
     return output
+
+
+def opencv_hls_to_rgb(h: np.ndarray, l: np.ndarray, s: np.ndarray) -> np.ndarray:
+    """Convert OpenCV HLS channels (H in 0..179, L in 0..255, S in 0..255) to uint8 RGB array."""
+    h_deg = h.astype(np.float32) * 2.0
+    l_val = l.astype(np.float32) / 255.0
+    s_val = s.astype(np.float32) / 255.0
+
+    c = (1.0 - np.abs(2.0 * l_val - 1.0)) * s_val
+    h_prime = h_deg / 60.0
+    x = c * (1.0 - np.abs(np.fmod(h_prime, 2.0) - 1.0))
+    m = l_val - c / 2.0
+
+    sector = np.floor(h_prime).astype(int) % 6
+    shape = h.shape
+    r = np.zeros(shape, dtype=np.float32)
+    g = np.zeros(shape, dtype=np.float32)
+    b = np.zeros(shape, dtype=np.float32)
+
+    for sec, (rc, gc, bc) in enumerate([
+        (c, x, 0.0), (x, c, 0.0), (0.0, c, x),
+        (0.0, x, c), (x, 0.0, c), (c, 0.0, x),
+    ]):
+        cond = (sector == sec)
+        r[cond] = rc if np.isscalar(rc) else rc[cond]
+        g[cond] = gc if np.isscalar(gc) else gc[cond]
+        b[cond] = bc if np.isscalar(bc) else bc[cond]
+
+    rgb = np.stack([(r + m) * 255.0, (g + m) * 255.0, (b + m) * 255.0], axis=-1)
+    return np.clip(np.round(rgb), 0, 255).astype(np.uint8)
+
+
+def unity_hsv_to_rgb(h: np.ndarray, s: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Convert HSV channels (H, S, V in 0..1) to uint8 RGB array."""
+    h_norm = np.fmod(h.astype(np.float32), 1.0)
+    h_norm = np.where(h_norm < 0.0, h_norm + 1.0, h_norm)
+    s_val = np.clip(s.astype(np.float32), 0.0, 1.0)
+    v_val = np.clip(v.astype(np.float32), 0.0, 1.0)
+
+    c = v_val * s_val
+    h_prime = h_norm * 6.0
+    x = c * (1.0 - np.abs(np.fmod(h_prime, 2.0) - 1.0))
+    m = v_val - c
+
+    sector = np.floor(h_prime).astype(int) % 6
+    shape = h.shape
+    r = np.zeros(shape, dtype=np.float32)
+    g = np.zeros(shape, dtype=np.float32)
+    b = np.zeros(shape, dtype=np.float32)
+
+    for sec, (rc, gc, bc) in enumerate([
+        (c, x, 0.0), (x, c, 0.0), (0.0, c, x),
+        (0.0, x, c), (x, 0.0, c), (c, 0.0, x),
+    ]):
+        cond = (sector == sec)
+        r[cond] = rc if np.isscalar(rc) else rc[cond]
+        g[cond] = gc if np.isscalar(gc) else gc[cond]
+        b[cond] = bc if np.isscalar(bc) else bc[cond]
+
+    rgb = np.stack([(r + m) * 255.0, (g + m) * 255.0, (b + m) * 255.0], axis=-1)
+    return np.clip(np.round(rgb), 0, 255).astype(np.uint8)
+
+
+def encode_gui_design_image(
+    design: Design,
+    image_format: str,
+    original_rgb: np.ndarray | None = None,
+) -> tuple[np.ndarray, Image.Image]:
+    """Encode a Design to an image array and a PIL display image matching the chosen format."""
+    h, w = design.shape
+    if image_format == "RGB8 indexed":
+        profile = RGB8IndexedProfile()
+        try:
+            raw_arr, _report = profile.encode(design, policy="quantize", allow_clip=True)
+        except Exception:
+            active = design.active
+            uniq_p = sorted(set(design.period_nm[active].tolist())) if np.any(active) else [1000]
+            uniq_a = sorted(set(design.angle_deg[active].tolist())) if np.any(active) else [0.0]
+            dyn_profile = RGB8IndexedProfile(period_lut_nm=uniq_p[:256], angle_lut_deg=uniq_a[:256])
+            raw_arr, _report = dyn_profile.encode(design, policy="quantize", allow_clip=True)
+        return raw_arr, Image.fromarray(raw_arr, mode="RGB")
+
+    if image_format == "RGB16 fixed":
+        profile = RGB16FixedProfile()
+        raw_arr, _report = profile.encode(design, policy="quantize")
+        vis = np.zeros((h, w, 3), dtype=np.uint8)
+        if np.any(design.active):
+            act = design.active
+            periods = raw_arr[act, 0].astype(np.float32)
+            p_min, p_max = float(periods.min()), float(periods.max())
+            if p_max > p_min:
+                vis[act, 0] = np.clip(np.round((periods - p_min) / (p_max - p_min) * 255.0), 0, 255).astype(np.uint8)
+            else:
+                vis[act, 0] = 128
+            vis[act, 1] = np.clip(raw_arr[act, 1] >> 8, 0, 255).astype(np.uint8)
+            vis[act, 2] = 255
+        return raw_arr, Image.fromarray(vis, mode="RGB")
+
+    if image_format in ("Holtida legacy HLS", "Learning Shaders HLS"):
+        rot_range = 180.0 if image_format == "Holtida legacy HLS" else 90.0
+        h_arr = np.zeros((h, w), dtype=np.uint8)
+        l_arr = np.zeros((h, w), dtype=np.uint8)
+        s_arr = np.zeros((h, w), dtype=np.uint8)
+        if np.any(design.active):
+            p_um = design.period_nm[design.active] / 1000.0
+            p_norm = np.clip((p_um - 0.9) / (1.2 - 0.9), 0.0, 1.0)
+            idx = np.round(p_norm * 359).astype(int)
+            h_arr[design.active] = (idx // 2).astype(np.uint8)
+            sats = np.clip((design.angle_deg[design.active] / rot_range) * 100.0 + 50.0, 0.0, 100.0)
+            s_arr[design.active] = np.clip(np.round(sats * 255.0 / 100.0), 0, 255).astype(np.uint8)
+            if original_rgb is not None and original_rgb.shape[:2] == (h, w) and original_rgb.dtype == np.uint8:
+                _h_orig, l_orig, _s_orig = rgb_to_opencv_hls(original_rgb)
+                l_arr[design.active] = np.where((l_orig[design.active] > 0) & (l_orig[design.active] < 250),
+                                                l_orig[design.active], 128)
+            else:
+                l_arr[design.active] = 128
+        raw_arr = opencv_hls_to_rgb(h_arr, l_arr, s_arr)
+        return raw_arr, Image.fromarray(raw_arr, mode="RGB")
+
+    if image_format == "Unity HSV":
+        min_angle, max_angle = -10.0, 10.0
+        h_arr = np.zeros((h, w), dtype=np.float32)
+        s_arr = np.zeros((h, w), dtype=np.float32)
+        v_arr = np.zeros((h, w), dtype=np.float32)
+        if np.any(design.active):
+            act = design.active
+            periods_nm = design.period_nm[act].astype(np.float32)
+            laser_periods = np.array(UNITY_PERIOD_REAL_NM, dtype=np.float32)
+            laser_hues = np.array(UNITY_LASER_HUES, dtype=np.float32)
+            diffs = np.abs(periods_nm[:, None] - laser_periods[None, :])
+            closest_indices = np.argmin(diffs, axis=1)
+            h_arr[act] = laser_hues[closest_indices]
+            s_norm = np.clip((design.angle_deg[act] - min_angle) / (max_angle - min_angle), 0.0, 1.0)
+            s_arr[act] = s_norm
+            v_arr[act] = 1.0
+        raw_arr = unity_hsv_to_rgb(h_arr, s_arr, v_arr)
+        return raw_arr, Image.fromarray(raw_arr, mode="RGB")
+
+    # Fallback
+    raw_arr, _report = RGB8IndexedProfile().encode(design, policy="quantize", allow_clip=True)
+    return raw_arr, Image.fromarray(raw_arr, mode="RGB")
+
+
+def apply_parameter_edit(
+    design: Design,
+    kind: Literal["gratings", "angles"],
+    old_val: float,
+    new_val: float,
+) -> tuple[Design, int]:
+    """Update a grating period or angle across all matching active cells."""
+    if kind == "gratings":
+        if not math.isfinite(new_val) or new_val <= 0:
+            raise ValueError("Grating period must be a positive number of micrometres.")
+        old_nm = int(round(old_val * 1000.0))
+        new_nm = int(round(new_val * 1000.0))
+        if new_nm <= 0:
+            raise ValueError("Grating period is too small to represent in nanometres.")
+        mask = design.active & (design.period_nm == old_nm)
+        count = int(np.count_nonzero(mask))
+        if count > 0:
+            design.period_nm[mask] = new_nm
+            design.operations.append(OperationRecord("edit_grating", {"old_nm": old_nm, "new_nm": new_nm, "cells": count}))
+        return design, count
+    elif kind == "angles":
+        if not math.isfinite(new_val):
+            raise ValueError("Angle must be a finite number of degrees.")
+        mask = design.active & np.isclose(design.angle_deg, old_val, atol=1e-5)
+        count = int(np.count_nonzero(mask))
+        if count > 0:
+            design.angle_deg[mask] = new_val
+            design.operations.append(OperationRecord("edit_angle", {"old_deg": old_val, "new_deg": new_val, "cells": count}))
+        return design, count
+    else:
+        raise ValueError(f"Unknown parameter kind: {kind}")
+
+
+def save_gui_design_image(
+    path: str | Path,
+    raw_array: np.ndarray,
+) -> Path:
+    """Save an encoded design image array losslessly."""
+    output = Path(path)
+    if output.suffix.lower() != ".png":
+        raise ValueError("Choose a .png output filename.")
+    save_image_rgb(output, raw_array)
+    return output
+
+
+def export_gui_bundle(design: Design, destination_dir: str | Path, layout_name: str = "HOLOGRAM") -> Path:
+    """Publish a complete fabrication bundle for the current design."""
+    return stage_and_export_bundle(design, output_parent_dir=destination_dir, layout_name=layout_name)

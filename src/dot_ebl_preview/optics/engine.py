@@ -90,7 +90,6 @@ def simulate_cell_optical_color(
     angle_deg: float,
     world_pos: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     params: Optional[OpticalSimParams] = None,
-    holopixel_diameter_nm: float = 20_000.0,
 ) -> Tuple[float, float, float]:
     """Calculate the rendered sRGB color (r, g, b in [0, 1]) for a single holopixel.
 
@@ -100,16 +99,14 @@ def simulate_cell_optical_color(
 
     Args:
         period_nm: Grating period in integer nanometres.
-        angle_deg: CCW rotation of grating lines from +X around +Z. At zero
-            degrees the lines run along X and the grating vector points along +Y.
+        angle_deg: Grating orientation in degrees (CCW rotation from +X axis).
         world_pos: 3D coordinates (x, y, z) of the cell center in the scene.
         params: Optical simulation parameters (camera, light, aperture, orders).
-        holopixel_diameter_nm: Diameter of the circular grating envelope.
 
     Returns:
         Tuple[float, float, float]: Linear sRGB color tuple with components clamped to [0.0, 1.0].
     """
-    if period_nm <= 0 or holopixel_diameter_nm <= 0:
+    if period_nm <= 0:
         return 0.0, 0.0, 0.0
 
     if params is None:
@@ -118,10 +115,13 @@ def simulate_cell_optical_color(
     sxyz_table = premultiplied_XYZ()  # (77, 3)
     xyz2rgb_mat = XYZ2RGB()           # (3, 3)
 
-    # Unrotated stripes run along +X. A CCW SREF rotation maps their +Y
-    # reciprocal vector to (-sin(angle), cos(angle)).
+    # Geometry & vectors
+    # Holopixel coordinate: grating normal is rotated by angle_deg CCW from +Y
     rad = math.radians(angle_deg)
-    grating_vec = (-math.sin(rad), math.cos(rad))
+    grating_vec = (math.sin(rad), math.cos(rad), 0.0)
+
+    # World position and unit normal
+    unit_normal = (0.0, 0.0, 1.0)
 
     # Light vector
     lx = params.light_pos[0] - world_pos[0]
@@ -129,11 +129,8 @@ def simulate_cell_optical_color(
     lz = params.light_pos[2] - world_pos[2]
     l_len = math.sqrt(lx * lx + ly * ly + lz * lz)
     if l_len < 1e-9:
-        return 0.0, 0.0, 0.0
+        l_len = 1.0
     unit_light = (lx / l_len, ly / l_len, lz / l_len)
-    cos_inc = max(0.0, unit_light[2])
-    if cos_inc == 0.0:
-        return 0.0, 0.0, 0.0
 
     # Camera vector
     cx = params.camera_pos[0] - world_pos[0]
@@ -141,16 +138,20 @@ def simulate_cell_optical_color(
     cz = params.camera_pos[2] - world_pos[2]
     c_len = math.sqrt(cx * cx + cy * cy + cz * cz)
     if c_len < 1e-9:
-        return 0.0, 0.0, 0.0
+        c_len = 1.0
     unit_cam = (cx / c_len, cy / c_len, cz / c_len)
-    if unit_cam[2] <= 0.0:
-        return 0.0, 0.0, 0.0
 
-    # Both vectors are unit length in the substrate's local XYZ frame.
-    detector_radius = max(0.0, params.aperture_radius_factor) / c_len
+    radius = params.aperture_radius_factor / c_len
+
+    actual_light = (unit_light[0] + unit_normal[0], unit_light[1] + unit_normal[1])
+    cam_x = unit_cam[0] + unit_normal[0]
+    cam_y = unit_cam[1] + unit_normal[1]
+    cam_z_sq = max(0.0, 1.0 - cam_x * cam_x - cam_y * cam_y)
+    actual_cam = (cam_x, cam_y, math.sqrt(cam_z_sq))
 
     period_m = period_nm * 1e-9
-    holopixel_diameter_m = holopixel_diameter_nm * 1e-9
+    s_factor = grating_vec[0] / period_m
+    c_factor = grating_vec[1] / period_m
 
     orders_to_check: List[int] = list(params.orders)
     if params.include_order_2:
@@ -170,31 +171,19 @@ def simulate_cell_optical_color(
                 continue
             coeff = params.order_2_weight if abs(m) == 2 else 1.0
 
-            alpha_x = -unit_light[0] + m * (wl_m / period_m) * grating_vec[0]
-            alpha_y = -unit_light[1] + m * (wl_m / period_m) * grating_vec[1]
+            alpha_x = m * wl_m * s_factor - actual_light[0]
+            alpha_y = -m * wl_m * c_factor - actual_light[1]
             alpha12 = alpha_x * alpha_x + alpha_y * alpha_y
 
-            if alpha12 <= 1.0:
+            if alpha12 < 1.0:
                 alpha_z = math.sqrt(1.0 - alpha12)
-                cos_dev = max(-1.0, min(1.0,
-                    alpha_x * unit_cam[0] + alpha_y * unit_cam[1] + alpha_z * unit_cam[2]
-                ))
-                theta_dev = math.acos(cos_dev)
-
-                # Gaussian approximation to the finite circular cell's far-field
-                # profile, convolved with a Gaussian detector disk (RMS radius/2).
-                # The collected fraction approaches 1/D^2 in the far field;
-                # multiplying by another distance factor would count it twice.
-                sigma_diff = 0.5 * wl_m / holopixel_diameter_m
-                sigma_sq = sigma_diff * sigma_diff + 0.25 * detector_radius * detector_radius
-                if sigma_sq > 0.0:
-                    aligned_fraction = -math.expm1(
-                        -0.5 * (detector_radius / sigma_diff) ** 2
-                    )
-                    angular_weight = aligned_fraction * math.exp(
-                        -0.5 * theta_dev * theta_dev / sigma_sq
-                    )
-                    xyz_acc += s_xyz * coeff * cos_inc * alpha_z * angular_weight
+                # Distance to actualCameraDirection
+                dx = actual_cam[0] - alpha_x
+                dy = actual_cam[1] - alpha_y
+                dz = actual_cam[2] - alpha_z
+                dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+                if dist <= radius:
+                    xyz_acc += s_xyz * coeff
 
         light_xyz_acc += s_xyz
 
@@ -291,10 +280,7 @@ def render_optical_preview(
         key = (p, round(a, 3), round(x_world, 6), round(y_world, 6))
 
         if key not in cache:
-            cache[key] = simulate_cell_optical_color(
-                p, a, world_pos=world_pos, params=params,
-                holopixel_diameter_nm=design.pitch_nm,
-            )
+            cache[key] = simulate_cell_optical_color(p, a, world_pos=world_pos, params=params)
 
         rgb = cache[key]
 

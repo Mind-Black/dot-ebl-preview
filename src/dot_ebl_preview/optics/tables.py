@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 
 
 def XYZ2RGB() -> NDArray[np.float32]:
-    """CIE XYZ to linear sRGB matrix for ``matrix @ xyz`` multiplication."""
+    """CIE XYZ to sRGB conversion matrix (transposed for column-vector multiplication)."""
     return np.array(
         (
             (3.2404542, -1.5371385, -0.4985314),
@@ -15,7 +15,7 @@ def XYZ2RGB() -> NDArray[np.float32]:
             (0.0556434, -0.2040259, 1.0572252),
         ),
         dtype=np.float32,
-    )
+    ).T
 
 
 def s2xyz() -> NDArray[np.float32]:

@@ -2,9 +2,11 @@
 
 ## Windows desktop GUI
 
-Run `dist\DotEBLPreview.exe` to open the desktop interface. It loads a PNG/BMP/TIFF design image or a saved `design.npz`, lists every active grating period and angle with cell counts, and shows four panes at once: the original RGB file, the extracted grating period map, the extracted rotation angle map, and live OpenGL diffraction. A saved `.npz` design has no original RGB file, so that pane explains the missing source. The GUI also saves a Raith GDSII file. It offers explicit image interpretations: Holtida legacy HLS, Learning Shaders HLS, Unity HSV, RGB8 indexed, and RGB16 fixed. Choose the interpretation used to create the image; a regular photograph has no defined grating parameters.
+Run `dist\DotEBLPreview.exe` to open the desktop interface. It loads a PNG/BMP/TIFF design image or a saved `design.npz`, lists every active grating period and angle with cell counts in editable tables, and shows four panes at once: the RGB design image, the extracted grating period map, the extracted rotation angle map, and live OpenGL diffraction. It offers explicit image interpretations: Holtida legacy HLS, Learning Shaders HLS, Unity HSV, RGB8 indexed, and RGB16 fixed.
 
-The scene starts with the optical model's source and observer positions. Drag the illumination and observation sliders or edit their XYZ positions in millimetres. Select **Direction** to control azimuth, elevation, and distance from the design center instead. Design orientation is a global CCW angle with its own slider. The OpenGL pane updates as controls move. Left drag in that pane orbits the observer; right drag orbits the light; the wheel changes observer distance, and Shift+wheel changes light distance. While controls move, a smaller render target keeps the response quick. After 0.3 seconds without a change, it renders at the design's full resolution. **Refresh preview** captures the full-resolution frame; **Save preview PNG** saves a full-resolution frame. **CPU reference** is available for comparison or machines without OpenGL 3.3 and runs on request. The maps and GDS use the original design angles; changing the preview orientation does not alter fabrication data.
+Double-clicking any grating period or rotation angle in the parameter tables (or selecting a row and typing a value into the edit field below) modifies the physical specification for all matching active cells. All four display panes update dynamically in real time: the re-encoded design image, the grating periodicity map, the rotation angle map, and the live diffraction preview. You can revert to the originally imported design at any time using **Revert all**. The interface allows saving the updated design image as a lossless PNG (**Save design image PNG...**), compiling a Raith GDSII file (**Save GDS...**), or publishing a complete atomic EBL fabrication bundle (**Export fabrication bundle...**).
+
+The scene starts with the optical model's source and observer positions. Drag the illumination and observation sliders or edit their XYZ positions in millimetres. Select **Direction** to control azimuth, elevation, and distance from the design center instead. Design orientation is a global CCW angle with its own slider. The OpenGL pane updates as controls move. Left drag in that pane orbits the observer; right drag orbits the light; the wheel changes observer distance, and Shift+wheel changes light distance. While controls move, a smaller render target keeps the response quick. After 0.3 seconds without a change, it renders at the design's full resolution. **Refresh preview** captures the full-resolution frame; **Save preview PNG** saves a full-resolution frame. **CPU reference** is available for comparison or machines without OpenGL 3.3 and runs on request. The maps and GDS use the design angles; changing the preview orientation does not alter fabrication data.
 
 To rebuild the executable from the repository root on Windows:
 
@@ -130,7 +132,6 @@ flowchart TD
 - **Grating Orientation & Asymmetry**:
   - Grating orientation angles $\theta$ are signed float64 degrees, measured counterclockwise (CCW) from the $+X$ axis.
   - An unrotated grating ($\theta = 0^\circ$) runs along $+X$ with grating vector (normal) along $+Y$.
-  - Rotating a cell CCW about $+Z$ gives the reciprocal grating direction $(-\sin\theta, \cos\theta)$, matching its GDSII SREF rotation.
   - Angles are **not** normalized modulo $180^\circ$. Because circular aperture stripe chords $y_k = -P/2 + \Lambda/2 + k\Lambda$ are anchored by physical phase, a $180^\circ$ rotation reverses stripe positions when $P/\Lambda$ is not integral. The full signed branch is preserved in the design and layout reference transforms.
 
 ---
@@ -295,8 +296,6 @@ Contained in [`dot_ebl_preview.optics`](file:///c:/Users/minjuo/Dev/dot-ebl-prev
   Renders a full 2D float32 sRGB optical image.
 - [`render_preview_to_file(design, output_path, preset='corrected') -> Path`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/preview/renderer.py#L14-L33):
   Headless PNG rendering entry point.
-
-The CPU preview uses a Gaussian approximation for diffraction from each finite circular holopixel and for collection by the camera aperture. The holopixel diameter comes from `Design.pitch_nm` (20 µm for direct single-cell calls by default). `OpticalSimParams.aperture_radius_factor` is the camera aperture radius in millimetres. The collected fraction approaches inverse-square distance falloff when the aperture is small relative to the diffracted spot; no separate distance multiplier is applied. Incoming and outgoing ray cosines attenuate the result. These approximations do not predict measured diffraction efficiency or polarization.
 
 ### Python Workflow Example
 
