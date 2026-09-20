@@ -70,12 +70,15 @@ def import_legacy_unity_hsv(
     image_path: Union[str, Path],
     min_angle_deg: float = -10.0,
     max_angle_deg: float = 10.0,
-    pitch_nm: int = 60000,
+    pitch_nm: Optional[int] = 60000,
 ) -> Design:
     """Import a legacy appearance image using the Unity shader HSV algorithm.
 
     Preserves source appearance and fallback grayscale field.
     """
+    if pitch_nm is None:
+        pitch_nm = 60000
+
     p = Path(image_path)
     if not p.exists():
         raise FileNotFoundError(f"Unity source image not found: {p}")

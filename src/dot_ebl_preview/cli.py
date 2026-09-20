@@ -57,7 +57,7 @@ def main(args: Optional[list[str]] = None) -> int:
     p_import.add_argument("input", help="Path to legacy image file")
     p_import.add_argument("--preset", default="holtida-ebl", choices=["holtida-ebl", "learning-shaders", "unity-hsv"])
     p_import.add_argument("--mode", default="corrected", choices=["corrected", "legacy-exact"])
-    p_import.add_argument("--pitch-um", type=float, default=20.0)
+    p_import.add_argument("--pitch-um", type=float, default=None, help="Pixel pitch in µm (default: preset-specific)")
     p_import.add_argument("--downscale", type=int, default=1)
     p_import.add_argument("--filter", choices=["none", "gaussian", "bilateral"], default="none")
     p_import.add_argument("--output", "-o", required=True, help="Output .npz path")
@@ -93,7 +93,7 @@ def main(args: Optional[list[str]] = None) -> int:
 
     elif parsed.command == "import-legacy":
         in_path = Path(parsed.input)
-        pitch_nm = int(round(parsed.pitch_um * 1000.0))
+        pitch_nm = int(round(parsed.pitch_um * 1000.0)) if parsed.pitch_um is not None else None
         if parsed.preset == "unity-hsv":
             design = import_legacy_unity_hsv(in_path, pitch_nm=pitch_nm)
         else:

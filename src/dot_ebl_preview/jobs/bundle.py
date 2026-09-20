@@ -6,6 +6,7 @@ import datetime
 import hashlib
 import json
 import shutil
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -46,14 +47,12 @@ def stage_and_export_bundle(
     parent.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    final_dir_name = f"{timestamp}_{layout_name}"
-    final_dir = parent / final_dir_name
+    final_dir_base = f"{timestamp}_{layout_name}"
 
-    # Stage inside a temporary directory on the same filesystem
-    temp_dir = parent / f".tmp_{timestamp}_{layout_name}_{id(design)}"
-    if temp_dir.exists():
-        shutil.rmtree(temp_dir)
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    # Stage inside a uniquely allocated temporary directory on the same filesystem
+    staging_id = uuid.uuid4().hex
+    temp_dir = parent / f".tmp_{timestamp}_{layout_name}_{staging_id}"
+    temp_dir.mkdir(parents=True, exist_ok=False)
 
     if tracker is not None:
         tracker.update_to(0)
@@ -124,10 +123,20 @@ def stage_and_export_bundle(
         if interruption_stage == 5:
             raise RuntimeError("Interrupted at stage 5")
 
-        # Step 6: Atomic publish rename
-        if final_dir.exists():
-            shutil.rmtree(final_dir)
-        temp_dir.rename(final_dir)
+        # Step 6: Safe atomic publish rename avoiding collisions and preserving existing bundles
+        counter = 0
+        final_dir = parent / final_dir_base
+        while True:
+            candidate = parent / (final_dir_base if counter == 0 else f"{final_dir_base}_{counter:02d}")
+            if not candidate.exists():
+                try:
+                    temp_dir.rename(candidate)
+                    final_dir = candidate
+                    break
+                except (FileExistsError, OSError):
+                    # Handled if another process/thread claimed candidate concurrently
+                    pass
+            counter += 1
 
         if tracker is not None:
             tracker.finish()

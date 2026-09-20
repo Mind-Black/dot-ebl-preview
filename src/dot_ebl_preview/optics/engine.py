@@ -264,17 +264,23 @@ def render_optical_preview(
     if params is None:
         params = OpticalSimParams()
 
-    # Optimization: compute optical color per unique active (period, angle) key
+    h, w = design.shape
+    pitch_mm = design.pitch_nm * 1e-6
+
+    # Optimization: compute optical color with position-dependent spatial coordinates
     cache = {}
     active_rows, active_cols = np.nonzero(active)
 
     for r, c in zip(active_rows, active_cols):
         p = int(design.period_nm[r, c])
         a = float(design.angle_deg[r, c])
-        key = (p, round(a, 3))
+        x_world = (c + 0.5 - w / 2.0) * pitch_mm
+        y_world = -(r + 0.5 - h / 2.0) * pitch_mm
+        world_pos = (float(x_world), float(y_world), 0.0)
+        key = (p, round(a, 3), round(x_world, 6), round(y_world, 6))
 
         if key not in cache:
-            cache[key] = simulate_cell_optical_color(p, a, params=params)
+            cache[key] = simulate_cell_optical_color(p, a, world_pos=world_pos, params=params)
 
         rgb = cache[key]
 

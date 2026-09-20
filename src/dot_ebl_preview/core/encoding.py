@@ -368,9 +368,10 @@ class RGB16FixedProfile:
 
         r_codes = periods.astype(np.uint16)
 
-        # Angles: (angle_deg * 100) + 32768 with half-away-from-zero rounding
-        scaled_angles = angles * self.angle_scale + self.angle_offset
-        g_codes_raw = round_half_away_from_zero(scaled_angles)
+        # Angles: round(angle_deg * 100) + 32768 with signed half-away-from-zero rounding
+        scaled_angles = angles * self.angle_scale
+        rounded_angles = round_half_away_from_zero(scaled_angles)
+        g_codes_raw = rounded_angles + self.angle_offset
 
         if np.any(g_codes_raw < 0) or np.any(g_codes_raw > 65535):
             raise ValueError("Angle value exceeds 16-bit code range [-327.68°, +327.67°].")
