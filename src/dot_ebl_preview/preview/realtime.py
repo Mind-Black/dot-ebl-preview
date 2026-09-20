@@ -154,7 +154,7 @@ class RealtimeViewer:
         point = scene.camera_pos if which == "camera" else scene.light_pos
         az, el, distance = direction_from_position(point)
         updated = position_from_direction(az + delta_az, max(-90.0, min(90.0, el + delta_el)),
-                                          max(1.0, min(500.0, distance * distance_factor)))
+                                          max(1.0, min(1000.0, distance * distance_factor)))
         scene = replace(scene, **({"camera_pos": updated} if which == "camera" else {"light_pos": updated}))
         self.update_scene(scene)
         self.events.put(("scene", scene))

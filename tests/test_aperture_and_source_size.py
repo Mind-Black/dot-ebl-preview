@@ -12,15 +12,19 @@ from dot_ebl_preview.optics.engine import OpticalSimParams, simulate_cell_optica
 from dot_ebl_preview.preview.gl_renderer import render_opengl_preview
 
 
-def test_default_parameters_match_original_behavior():
+def test_default_parameters_human_eye_and_light_bulb():
     params = OpticalSimParams()
-    assert params.aperture_radius_factor == 5.0
-    assert params.source_radius_factor == 0.0
-    assert params.aperture_mm == 5.0
-    assert params.source_size_mm == 0.0
+    assert params.aperture_radius_factor == 2.0
+    assert params.source_radius_factor == 20.0
+    assert params.aperture_mm == 2.0
+    assert params.source_size_mm == 20.0
+    assert params.camera_pos == (0.0, 0.0, 300.0)
+    assert pytest.approx(params.light_pos[1], rel=1e-4) == 229.43057
+    assert pytest.approx(params.light_pos[2], rel=1e-4) == 327.66082
 
     color = simulate_cell_optical_color(1000, 0.0, params=params)
-    assert color[1] > 0.5  # Yellow-green green component
+    assert color[1] > 0.005  # Green component present
+    assert color[1] > color[2]  # Yellow-green dominant over blue
 
 
 def test_observer_aperture_effects():
@@ -47,15 +51,16 @@ def test_observer_aperture_effects():
 
 
 def test_light_source_physical_size_broadening():
+    light_macro = (0.0, float(36.0 * math.sin(math.radians(35.0))), float(36.0 * math.cos(math.radians(35.0))))
     # In the wing (e.g. 10 mm off-axis at 66 mm distance), a point source is extinguished
     wing_cam = (10.0, 0.0, 66.0)
     pt_wing = np.asarray(simulate_cell_optical_color(
         1000, 0.0,
-        params=OpticalSimParams(camera_pos=wing_cam, source_radius_factor=0.0)
+        params=OpticalSimParams(light_pos=light_macro, camera_pos=wing_cam, aperture_radius_factor=5.0, source_radius_factor=0.0)
     ))
     ext_wing = np.asarray(simulate_cell_optical_color(
         1000, 0.0,
-        params=OpticalSimParams(camera_pos=wing_cam, source_radius_factor=8.0)
+        params=OpticalSimParams(light_pos=light_macro, camera_pos=wing_cam, aperture_radius_factor=5.0, source_radius_factor=8.0)
     ))
 
     # Extended source maintains broad illumination in the wings where point source is dark
@@ -66,11 +71,11 @@ def test_light_source_physical_size_broadening():
     on_axis_cam = (0.0, 0.0, 66.0)
     pt_center = np.asarray(simulate_cell_optical_color(
         1000, 0.0,
-        params=OpticalSimParams(camera_pos=on_axis_cam, source_radius_factor=0.0)
+        params=OpticalSimParams(light_pos=light_macro, camera_pos=on_axis_cam, aperture_radius_factor=5.0, source_radius_factor=0.0)
     ))
     ext_center = np.asarray(simulate_cell_optical_color(
         1000, 0.0,
-        params=OpticalSimParams(camera_pos=on_axis_cam, source_radius_factor=8.0)
+        params=OpticalSimParams(light_pos=light_macro, camera_pos=on_axis_cam, aperture_radius_factor=5.0, source_radius_factor=8.0)
     ))
     # Point source has virtually zero blue at this angle (< 0.01); extended source mixes blue (> 0.05)
     assert pt_center[2] < 0.01
@@ -80,8 +85,11 @@ def test_light_source_physical_size_broadening():
 def test_scene_settings_validation():
     # Valid defaults
     s = SceneSettings()
-    assert s.aperture_mm == 5.0
-    assert s.source_size_mm == 0.0
+    assert s.aperture_mm == 2.0
+    assert s.source_size_mm == 20.0
+    assert s.camera_pos == (0.0, 0.0, 300.0)
+    assert pytest.approx(s.light_pos[1], rel=1e-4) == 229.430573
+    assert pytest.approx(s.light_pos[2], rel=1e-4) == 327.660818
     assert s.validated() is s
 
     # Valid custom values
@@ -170,14 +178,14 @@ def test_gui_aperture_and_source_size_variables():
         window = DesignWindow(root)
         assert "aperture" in window.observer_vars
         assert "size" in window.source_vars
-        assert window.observer_vars["aperture"].get() == "5.0"
-        assert window.source_vars["size"].get() == "0.0"
+        assert window.observer_vars["aperture"].get() == "2.0"
+        assert window.source_vars["size"].get() == "20.0"
 
         # Check _scene_settings produces matching SceneSettings
         scene = window._scene_settings(report_error=False)
         assert scene is not None
-        assert scene.aperture_mm == 5.0
-        assert scene.source_size_mm == 0.0
+        assert scene.aperture_mm == 2.0
+        assert scene.source_size_mm == 20.0
 
         # Change variables
         window.observer_vars["aperture"].set("8.5")

@@ -16,7 +16,7 @@ def test_d65_white_maps_to_neutral_linear_srgb():
 def test_zero_degree_grating_is_yellow_green_and_ninety_degree_is_dark():
     on_axis = np.asarray(simulate_cell_optical_color(1000, 0.0))
     cross_axis = np.asarray(simulate_cell_optical_color(1000, 90.0))
-    assert on_axis[1] > 0.5
+    assert on_axis[1] > 0.005
     assert on_axis[1] > 0.6 * on_axis[0]
     assert np.max(cross_axis) < 1e-8
 
@@ -31,7 +31,8 @@ def test_positive_rotation_matches_layout_grating_vector():
         36.0 * math.sin(incidence) * math.cos(rotation),
         36.0 * math.cos(incidence),
     )
-    params = OpticalSimParams(orders=(1,), light_pos=light, aperture_radius_factor=1.0)
+    params = OpticalSimParams(orders=(1,), light_pos=light, camera_pos=(0.0, 0.0, 66.0),
+                              aperture_radius_factor=1.0, source_radius_factor=0.0)
     aligned = np.asarray(simulate_cell_optical_color(1000, 30.0, params=params))
     reversed_rotation = np.asarray(simulate_cell_optical_color(1000, -30.0, params=params))
     assert aligned.sum() > 0.05
@@ -41,7 +42,7 @@ def test_positive_rotation_matches_layout_grating_vector():
 def test_finite_cell_avoids_binary_spectral_dropout():
     params = OpticalSimParams(aperture_radius_factor=0.01)
     centered = np.asarray(simulate_cell_optical_color(1000, 0.0, params=params))
-    offset_params = OpticalSimParams(camera_pos=(0.2, 0.0, 66.0), aperture_radius_factor=0.01)
+    offset_params = OpticalSimParams(camera_pos=(1.0, 0.0, 300.0), aperture_radius_factor=0.01)
     offset = np.asarray(simulate_cell_optical_color(1000, 0.0, params=offset_params))
     assert centered.sum() > 0.0
     assert 0.0 < offset.sum() < centered.sum()

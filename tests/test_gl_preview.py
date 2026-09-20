@@ -32,7 +32,8 @@ def test_opengl_preview_matches_cpu_for_positions_orientation_and_fallback():
     design = Design(shape=shape, pitch_nm=20000, period_nm=periods,
                     angle_deg=angles, active=active, fallback_intensity=fallback)
     scene = SceneSettings(light_pos=(0.0, 20.6487533, 29.4891314),
-                          camera_pos=(0.3, 0.0, 66.0), orientation_deg=2.0)
+                          camera_pos=(0.3, 0.0, 66.0), orientation_deg=2.0,
+                          aperture_mm=5.0, source_size_mm=0.0)
 
     try:
         gpu = np.asarray(render_scene_gpu(design, scene), dtype=np.int16)

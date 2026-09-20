@@ -259,7 +259,7 @@ class ReusableGLRenderer:
 
     def render(self, design: Design, light_pos: tuple[float, float, float],
                camera_pos: tuple[float, float, float], orientation_deg: float = 0.0,
-               aperture_mm: float = 5.0, source_size_mm: float = 0.0) -> Image.Image:
+               aperture_mm: float = 2.0, source_size_mm: float = 20.0) -> Image.Image:
         import glfw
         from OpenGL import GL
 
@@ -376,7 +376,7 @@ def get_thread_renderer() -> ReusableGLRenderer:
 
 def render_opengl_preview(design: Design, light_pos: tuple[float, float, float],
                           camera_pos: tuple[float, float, float], orientation_deg: float = 0.0,
-                          aperture_mm: float = 5.0, source_size_mm: float = 0.0) -> Image.Image:
+                          aperture_mm: float = 2.0, source_size_mm: float = 20.0) -> Image.Image:
     """Render the corrected spectral preview using a reusable hidden OpenGL context."""
     renderer = get_thread_renderer()
     return renderer.render(design, light_pos, camera_pos, orientation_deg, aperture_mm, source_size_mm)

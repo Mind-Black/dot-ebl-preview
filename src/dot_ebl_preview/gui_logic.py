@@ -103,11 +103,11 @@ def parameter_map(design: Design, kind: Literal["gratings", "angles"]) -> Image.
 class SceneSettings:
     """Scene positions in mm; directional angles point from design center outward."""
 
-    light_pos: tuple[float, float, float] = (0.0, 20.6487533, 29.4891314)
-    camera_pos: tuple[float, float, float] = (0.0, 0.0, 66.0)
+    light_pos: tuple[float, float, float] = (0.0, 229.430573, 327.660818)
+    camera_pos: tuple[float, float, float] = (0.0, 0.0, 300.0)
     orientation_deg: float = 0.0
-    aperture_mm: float = 5.0
-    source_size_mm: float = 0.0
+    aperture_mm: float = 2.0
+    source_size_mm: float = 20.0
 
     def validated(self) -> "SceneSettings":
         values = (*self.light_pos, *self.camera_pos, self.orientation_deg, self.aperture_mm, self.source_size_mm)

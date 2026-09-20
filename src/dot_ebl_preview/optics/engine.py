@@ -74,14 +74,14 @@ class OpticalSimParams:
     orders: Tuple[int, ...] = (-1, 1)
     include_order_2: bool = False
     order_2_weight: float = 1.0 / 15.0
-    camera_pos: Tuple[float, float, float] = (0.0, 0.0, 66.0)
+    camera_pos: Tuple[float, float, float] = (0.0, 0.0, 300.0)
     light_pos: Tuple[float, float, float] = (
         0.0,
-        float(36.0 * math.sin(math.radians(35.0))),
-        float(36.0 * math.cos(math.radians(35.0))),
+        float(400.0 * math.sin(math.radians(35.0))),
+        float(400.0 * math.cos(math.radians(35.0))),
     )
-    aperture_radius_factor: float = 5.0  # camera aperture radius in mm
-    source_radius_factor: float = 0.0  # light source physical radius in mm (0.0 = point source)
+    aperture_radius_factor: float = 2.0  # observer aperture radius in mm (human eye pupil)
+    source_radius_factor: float = 20.0  # light source physical radius in mm (light bulb globe)
     apply_gamut_mapping: bool = True
     unity_mode: bool = False
 

@@ -90,8 +90,8 @@ def main(args: Optional[list[str]] = None) -> int:
     p_preview.add_argument("--preset", default="corrected", choices=["corrected", "glsl-legacy", "unity-hsv"])
     p_preview.add_argument("--profile", default="rgb8-indexed-v1", choices=["rgb8-indexed-v1", "rgb16-fixed-v1"])
     p_preview.add_argument("--pitch-um", type=float, default=20.0)
-    p_preview.add_argument("--aperture-mm", type=float, default=5.0, help="Observer aperture radius in mm (default: 5.0)")
-    p_preview.add_argument("--light-size-mm", type=float, default=0.0, help="Light source physical radius in mm (default: 0.0)")
+    p_preview.add_argument("--aperture-mm", type=float, default=2.0, help="Observer aperture radius in mm (default: 2.0)")
+    p_preview.add_argument("--light-size-mm", type=float, default=20.0, help="Light source physical radius in mm (default: 20.0)")
 
     parsed = parser.parse_args(args)
 

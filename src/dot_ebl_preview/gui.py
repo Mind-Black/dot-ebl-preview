@@ -74,12 +74,12 @@ class DesignWindow:
         self.live_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Choose a design image or a saved .npz design.")
         self.source_vars = self._point_vars(
-            ("0", "20.6487533", "29.4891314"), ("90", "55", "36"),
-            extra={"size": "0.0"},
+            ("0", "229.4306", "327.6608"), ("90", "55", "400"),
+            extra={"size": "20.0"},
         )
         self.observer_vars = self._point_vars(
-            ("0", "0", "66"), ("0", "90", "66"),
-            extra={"aperture": "5.0"},
+            ("0", "0", "300"), ("0", "90", "300"),
+            extra={"aperture": "2.0"},
         )
 
         self._build_window()
@@ -152,7 +152,7 @@ class DesignWindow:
         self.orientation_slider = self._linked_slider(scene, 1, self.orientation_var, -180.0, 180.0)
         scene.columnconfigure(0, weight=1)
         self._point_editor(scene, "Illumination", self.source_vars, 2,
-                           extra_caption="Source radius (mm)", extra_key="size", extra_range=(0.0, 30.0))
+                           extra_caption="Source radius (mm)", extra_key="size", extra_range=(0.0, 50.0))
         self._point_editor(scene, "Observation", self.observer_vars, 3,
                            extra_caption="Aperture radius (mm)", extra_key="aperture", extra_range=(0.1, 30.0))
         ttk.Label(scene, text="Drag sliders or edit values. In the OpenGL pane: left drag moves the observer; right drag moves the light; wheel changes distance (Shift+wheel for light).",
@@ -360,11 +360,11 @@ class DesignWindow:
                     pass
                 current_mode["value"] = mode
             if mode == "XYZ":
-                specs = (("X mm", "x", -100.0, 100.0), ("Y mm", "y", -100.0, 100.0),
-                         ("Z mm", "z", 1.0, 200.0))
+                specs = (("X mm", "x", -600.0, 600.0), ("Y mm", "y", -600.0, 600.0),
+                         ("Z mm", "z", 1.0, 1000.0))
             else:
                 specs = (("Azimuth °", "az", -180.0, 180.0), ("Elevation °", "el", -90.0, 90.0),
-                         ("Distance mm", "distance", 1.0, 200.0))
+                         ("Distance mm", "distance", 1.0, 1000.0))
             active_keys = {key for _caption, key, _low, _high in specs}
             for key, entry in entries.items():
                 entry.configure(state="normal" if key in active_keys else "disabled")
@@ -617,8 +617,8 @@ class DesignWindow:
 
     def _scene_settings(self, report_error: bool) -> SceneSettings | None:
         try:
-            aperture = float(self.observer_vars["aperture"].get()) if "aperture" in self.observer_vars else 5.0
-            source_size = float(self.source_vars["size"].get()) if "size" in self.source_vars else 0.0
+            aperture = float(self.observer_vars["aperture"].get()) if "aperture" in self.observer_vars else 2.0
+            source_size = float(self.source_vars["size"].get()) if "size" in self.source_vars else 20.0
             return SceneSettings(
                 light_pos=self._point(self.source_vars),
                 camera_pos=self._point(self.observer_vars),
