@@ -2,7 +2,7 @@
 
 Combined hologram optical diffraction preview and Raith electron-beam lithography (EBL) layout generator.
 
-`dot-ebl-preview` provides a single authoritative physical design representation shared across numeric RGB parameter interchange, rigorous spectral optical simulation, image processing/filtering, and pure-Python Raith GDSII layout serialization.
+`dot-ebl-preview` provides a single authoritative physical design representation shared across numeric RGB parameter interchange, a spectral optical preview, image processing/filtering, and pure-Python Raith GDSII layout serialization.
 
 ---
 
@@ -44,7 +44,7 @@ Historically, dot-matrix hologram design tools suffered from impedance mismatche
 1. **Canonical Physical Design**: The [`Design`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/core/model.py) dataclass stores uncorrupted physical parameters: integer nanometre periods and lattice pitch, 64-bit floating-point rotation angles, explicit boolean activity masks, and provenance tracking. RGB images are treated strictly as an external interchange format.
 2. **Raith Single-Pixel Exposure Lines**: Emits zero-width paths (`PATH` records with `WIDTH=0 nm`) inside circular-aperture holopixel cells, replacing legacy filled rectangular polygons. Grating lines are referenced hierarchically via rotated and translated Structure References (`SREF`).
 3. **Pure-Python Layout Serializer**: A zero-dependency binary serializer matching the University of Alberta nanoFAB `Raith_GDSII` toolbox specification, producing big-endian GDSII Stream Format release 3 directly.
-4. **Float64 Spectral Reference Optics**: Full CPU spectral evaluation simulating 77 discrete wavelength bands (380 nm to 760 nm in 5 nm increments) under standard illuminant D65, CIE 1931 $2^\circ$ color matching, bulk nickel reflectance, and guarded sRGB gamut mapping.
+4. **Float64 Spectral Reference Optics**: CPU geometric diffraction evaluation over 77 wavelength bands (380 nm to 760 nm in 5 nm increments) under standard illuminant D65, CIE 1931 $2^\circ$ color matching, bulk nickel reflectance, and guarded sRGB gamut mapping. Diffraction efficiencies are uncalibrated; this is a qualitative preview.
 
 ```mermaid
 flowchart TD
@@ -115,6 +115,7 @@ flowchart TD
 - **Grating Orientation & Asymmetry**:
   - Grating orientation angles $\theta$ are signed float64 degrees, measured counterclockwise (CCW) from the $+X$ axis.
   - An unrotated grating ($\theta = 0^\circ$) runs along $+X$ with grating vector (normal) along $+Y$.
+  - Rotating a cell CCW about $+Z$ gives the reciprocal grating direction $(-\sin\theta, \cos\theta)$, matching its GDSII SREF rotation.
   - Angles are **not** normalized modulo $180^\circ$. Because circular aperture stripe chords $y_k = -P/2 + \Lambda/2 + k\Lambda$ are anchored by physical phase, a $180^\circ$ rotation reverses stripe positions when $P/\Lambda$ is not integral. The full signed branch is preserved in the design and layout reference transforms.
 
 ---
@@ -280,6 +281,8 @@ Contained in [`dot_ebl_preview.optics`](file:///c:/Users/minjuo/Dev/dot-ebl-prev
 - [`render_preview_to_file(design, output_path, preset='corrected') -> Path`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/preview/renderer.py#L14-L33):
   Headless PNG rendering entry point.
 
+The CPU preview uses a Gaussian approximation for diffraction from each finite circular holopixel and for collection by the camera aperture. The holopixel diameter comes from `Design.pitch_nm` (20 µm for direct single-cell calls by default). `OpticalSimParams.aperture_radius_factor` is the camera aperture radius in millimetres. The collected fraction approaches inverse-square distance falloff when the aperture is small relative to the diffracted spot; no separate distance multiplier is applied. Incoming and outgoing ray cosines attenuate the result. These approximations do not predict measured diffraction efficiency or polarization.
+
 ### Python Workflow Example
 
 ```python
@@ -358,7 +361,7 @@ The current release provides headless CPU optical preview rendering (`dot-ebl pr
 
 ### 3. Calibrated Optical Scattering & RCWA
 
-- **Diffraction Efficiency**: Current preview assumes idealized thin binary grating diffraction with fixed harmonic order weights ($m = \pm 1$ at $1.0$, $m = \pm 2$ at $1/15$). Future work includes Rigorous Coupled-Wave Analysis (RCWA) or Finite-Difference Time-Domain (FDTD) simulation calibrated against experimental electron-beam single-pixel line groove profiles in resist/nickel.
+- **Diffraction Efficiency**: The preview uses fixed, uncalibrated order weights ($m = \pm 1$ at $1.0$, $m = \pm 2$ at $1/15$). The smooth finite-cell aperture is a Gaussian approximation, not an electromagnetic efficiency model. A useful RCWA/FDTD lookup table requires measured groove width/depth/profile and wavelength-dependent material constants; no such calibration data is included. Polarization contrast and resonance anomalies therefore remain unmodeled.
 - **BRDF & Spatial Illumination**: Support for extended area light sources and substrate diffuse scattering (BRDF).
 
 ### 4. Position Lists (`.pls`)
