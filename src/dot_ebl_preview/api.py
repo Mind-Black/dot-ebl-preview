@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import numpy as np
 
 from dot_ebl_preview.core.encoding import RGB8IndexedProfile, RGB16FixedProfile
@@ -97,6 +97,8 @@ def export_bundle(
     design: Design,
     output_dir: Union[str, Path],
     layout_name: str = "HOLOGRAM",
+    render_angles: Optional[Sequence[float]] = (0.0, 45.0, 90.0, 135.0),
+    preview_preset: str = "corrected",
 ) -> Path:
     """Stage and publish a complete, atomic EBL fabrication export bundle.
 
@@ -109,11 +111,14 @@ def export_bundle(
         - `gratings.txt`: 2D float text array of grating periods in µm (0.0 sentinel for inactive).
         - `design.npz`: Complete canonical design arrays and metadata (pickle-free NumPy archive).
         - `manifest.json`: Verification manifest with SHA-256 hashes, stripe counts, and timestamps.
+        - Optical preview PNGs at specified azimuth angles (e.g. `preview_angle_az0.png`, `preview.png`).
 
     Args:
         design: Authoritative Design instance to export.
         output_dir: Destination parent directory where the timestamped bundle folder will be created.
         layout_name: Base name for layout structures and files (default: 'HOLOGRAM').
+        render_angles: Optional sequence of azimuth angles to render previews for (default: 0, 45, 90, 135 deg).
+        preview_preset: Optical preset to use for preview rendering ('corrected', 'glsl-legacy', 'unity-hsv').
 
     Returns:
         Path: Absolute path to the finalized, published bundle directory.
@@ -126,7 +131,14 @@ def export_bundle(
         >>> bundle_dir = export_bundle(design, output_dir="./_OUTPUT", layout_name="SAMPLE")
         >>> print(f"Published bundle to: {bundle_dir}")
     """
-    return stage_and_export_bundle(design, output_parent_dir=output_dir, layout_name=layout_name)
+    return stage_and_export_bundle(
+        design,
+        output_parent_dir=output_dir,
+        layout_name=layout_name,
+        render_angles=render_angles,
+        preview_preset=preview_preset,
+    )
+
 
 
 def inspect_design(design: Design) -> Dict[str, Any]:
@@ -181,6 +193,7 @@ def dot_matrix_hologram(
     downscale_factor: int = 1,
     rotation_filter: bool = False,
     output_dir: Union[str, Path] = "_OUTPUT",
+    render_angles: Optional[Sequence[float]] = (0.0, 45.0, 90.0, 135.0),
 ) -> Optional[FabricationPlan]:
     """Compatibility wrapper matching historical Holtida-EBL dot_matrix_hologram signature.
 
@@ -197,6 +210,7 @@ def dot_matrix_hologram(
         downscale_factor: Integer downsampling factor (default: 1).
         rotation_filter: If True, applies bilateral angle smoothing (d=3, sigmaColor=10, sigmaSpace=100).
         output_dir: Output parent directory for bundle publication (default: '_OUTPUT').
+        render_angles: Optional sequence of azimuth angles to render previews for when write=True.
 
     Returns:
         Optional[FabricationPlan]: FabricationPlan if write=True, otherwise None.
@@ -232,7 +246,13 @@ def dot_matrix_hologram(
         design = apply_bilateral_filter(design, diameter=3, sigma_color=10.0, sigma_space=100.0)
 
     if write:
-        export_bundle(design, output_dir=output_dir, layout_name=layout_name)
+        export_bundle(
+            design,
+            output_dir=output_dir,
+            layout_name=layout_name,
+            render_angles=render_angles,
+        )
         return build_layout(design, top_name=layout_name)
 
     return None
+

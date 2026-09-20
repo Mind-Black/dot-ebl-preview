@@ -8,7 +8,7 @@ import json
 import shutil
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from dot_ebl_preview.core.model import Design
 from dot_ebl_preview.io.artifacts import save_design_artifact
@@ -31,6 +31,8 @@ def stage_and_export_bundle(
     layout_name: str = "HOLOGRAM",
     tracker: Optional[ProgressTracker] = None,
     interruption_stage: Optional[int] = None,
+    render_angles: Optional[Sequence[float]] = (0.0, 45.0, 90.0, 135.0),
+    preview_preset: str = "corrected",
 ) -> Path:
     """Stage and publish complete EBL export bundle atomically.
 
@@ -88,9 +90,22 @@ def stage_and_export_bundle(
         if interruption_stage == 4:
             raise RuntimeError("Interrupted at stage 4")
 
+        # Step 4.5: Render multi-angle optical previews if specified
+        preview_files: List[Path] = []
+        if render_angles:
+            from dot_ebl_preview.preview.renderer import render_angle_previews_to_directory
+
+            preview_files = render_angle_previews_to_directory(
+                design,
+                output_dir=temp_dir,
+                angles_deg=render_angles,
+                preset=preview_preset,
+            )
+
         # Step 5: Verify all staged files and build manifest
-        files_to_manifest = [gds_path, angles_path, gratings_path, npz_path]
+        files_to_manifest = [gds_path, angles_path, gratings_path, npz_path] + preview_files
         manifest_files: Dict[str, Dict[str, Any]] = {}
+
         for f in files_to_manifest:
             if not f.exists():
                 raise FileNotFoundError(f"Expected staged file missing: {f}")

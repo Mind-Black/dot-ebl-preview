@@ -1,5 +1,20 @@
 # dot-ebl-preview
 
+## Windows desktop GUI
+
+Run `dist\DotEBLPreview.exe` to open the desktop interface. It loads a PNG/BMP/TIFF design image or a saved `design.npz`, lists every active grating period and angle with cell counts, and shows four panes at once: the original RGB file, the extracted grating period map, the extracted rotation angle map, and live OpenGL diffraction. A saved `.npz` design has no original RGB file, so that pane explains the missing source. The GUI also saves a Raith GDSII file. It offers explicit image interpretations: Holtida legacy HLS, Learning Shaders HLS, Unity HSV, RGB8 indexed, and RGB16 fixed. Choose the interpretation used to create the image; a regular photograph has no defined grating parameters.
+
+The scene starts with the optical model's source and observer positions. Drag the illumination and observation sliders or edit their XYZ positions in millimetres. Select **Direction** to control azimuth, elevation, and distance from the design center instead. Design orientation is a global CCW angle with its own slider. The OpenGL pane updates as controls move. Left drag in that pane orbits the observer; right drag orbits the light; the wheel changes observer distance, and Shift+wheel changes light distance. While controls move, a smaller render target keeps the response quick. After 0.3 seconds without a change, it renders at the design's full resolution. **Refresh preview** captures the full-resolution frame; **Save preview PNG** saves a full-resolution frame. **CPU reference** is available for comparison or machines without OpenGL 3.3 and runs on request. The maps and GDS use the original design angles; changing the preview orientation does not alter fabrication data.
+
+To rebuild the executable from the repository root on Windows:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[gui,gui-build]"
+.\build_gui.ps1
+```
+
+The result is `dist\DotEBLPreview.exe`. For a development launch, use `.\.venv\Scripts\python.exe gui_entry.py` or the `dot-ebl-gui` console entry point after installation. The executable includes Python and the GUI dependencies; it does not need a separate Python installation on the destination Windows machine.
+
 Combined hologram optical diffraction preview and Raith electron-beam lithography (EBL) layout generator.
 
 `dot-ebl-preview` provides a single authoritative physical design representation shared across numeric RGB parameter interchange, a spectral optical preview, image processing/filtering, and pure-Python Raith GDSII layout serialization.
@@ -346,9 +361,9 @@ According to [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) and [RAITH_PORT.md]
 > [!NOTE]
 > Stub element classes for deferred primitives are registered in [`dot_ebl_preview.raith.elements`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/raith/elements.py) and enforce explicit exceptions via [`require_element_capability()`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/raith/capabilities.py#L52-L61).
 
-### 2. Interactive OpenGL 3.3 Viewer
+### 2. OpenGL preview and interactive viewer
 
-The current release provides headless CPU optical preview rendering (`dot-ebl preview` / [`render_preview_to_file`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/preview/renderer.py#L14-L34)). The full interactive GUI viewer is planned for Phase 3:
+The desktop GUI now defaults to a persistent OpenGL 3.3 renderer that evaluates the corrected 77-band spectrum on the GPU. It uses the same design arrays, light and observer positions, and orientation controls as the CPU reference. The renderer runs in a hidden GLFW context and sends frames to the GUI's fourth pane. It uses a reduced render target during interaction and a full-resolution render when the scene settles. The `dot-ebl preview` CLI and bundle exports continue to use the CPU reference. More advanced geometry inspection is planned for Phase 3:
 
 - **Instanced GPU Architecture**: Instance VBOs (16–24 bytes/cell) storing grating period, angle, and 3D world offsets.
 - **Coordinated Dual View**:
@@ -357,7 +372,7 @@ The current release provides headless CPU optical preview rendering (`dot-ebl pr
 - **Large-Array Performance ($>2.25\times 10^6$ cells)**:
   - Viewport frustum culling and level-of-detail (LOD) downscaling.
   - Target interactive latency $\le 33\text{ ms}$ (30 FPS) with VRAM footprint $<256\text{ MiB}$.
-- **Dynamic Interaction**: Real-time mouse orbit camera, pan, zoom, dynamic illuminant tilt, and instant high-res snapshot export.
+- **Dynamic Interaction**: Mouse pan and additional geometry tools beyond the current observer/light orbit and distance controls.
 
 ### 3. Calibrated Optical Scattering & RCWA
 

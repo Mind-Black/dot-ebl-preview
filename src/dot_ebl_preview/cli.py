@@ -69,6 +69,19 @@ def main(args: Optional[list[str]] = None) -> int:
     p_export.add_argument("--output-dir", "-o", default="_OUTPUT", help="Output directory")
     p_export.add_argument("--profile", default="rgb8-indexed-v1", choices=["rgb8-indexed-v1", "rgb16-fixed-v1"])
     p_export.add_argument("--pitch-um", type=float, default=20.0)
+    p_export.add_argument(
+        "--angles",
+        nargs="*",
+        type=float,
+        default=[0.0, 45.0, 90.0, 135.0],
+        help="Azimuth angles in degrees for preview images (default: 0 45 90 135)",
+    )
+    p_export.add_argument(
+        "--no-angles",
+        action="store_true",
+        help="Disable rendering preview images in the exported bundle",
+    )
+
 
     # preview
     p_preview = subparsers.add_parser("preview", help="Render optical preview image")
@@ -120,9 +133,16 @@ def main(args: Optional[list[str]] = None) -> int:
         else:
             design = build_design(in_path, encoding_profile=parsed.profile, pitch_nm=pitch_nm)
 
-        out_dir = export_bundle(design, output_dir=parsed.output_dir, layout_name=parsed.name)
+        render_angles = None if parsed.no_angles else parsed.angles
+        out_dir = export_bundle(
+            design,
+            output_dir=parsed.output_dir,
+            layout_name=parsed.name,
+            render_angles=render_angles,
+        )
         print(f"Exported bundle to {out_dir}")
         return 0
+
 
     elif parsed.command == "preview":
         in_path = Path(parsed.input)

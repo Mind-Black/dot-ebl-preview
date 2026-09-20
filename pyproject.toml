@@ -24,9 +24,17 @@ full = [
 dev = [
     "pytest>=7.0",
 ]
+gui-build = [
+    "pyinstaller",
+]
+gui = [
+    "glfw>=2.10",
+    "PyOpenGL>=3.1",
+]
 
 [project.scripts]
 dot-ebl = "dot_ebl_preview.cli:main"
+dot-ebl-gui = "dot_ebl_preview.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
