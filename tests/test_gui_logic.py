@@ -196,11 +196,35 @@ def test_design_window_editing_workflow(tmp_path):
         orig_gratings = [v[0] for v in win._table_data["gratings"]]
         assert 1.0 in orig_gratings
 
+        # Verify columns and channel headings
+        assert win.period_table["columns"] == ("value", "channel", "count")
+        assert win.angle_table["columns"] == ("value", "channel", "count")
+        assert win.period_table.heading("channel")["text"] == "Channel (R)"
+        assert win.angle_table.heading("channel")["text"] == "Channel (G)"
+
+        # Verify table items have respective channel values
+        p_items = [win.period_table.item(item_id, "values") for item_id in win.period_table.get_children()]
+        val_to_chan_p = {row[0]: row[1] for row in p_items}
+        assert val_to_chan_p["1"] == "10"
+        assert val_to_chan_p["0.9"] == "0"
+        assert val_to_chan_p["1.05"] == "15"
+
+        a_items = [win.angle_table.item(item_id, "values") for item_id in win.angle_table.get_children()]
+        val_to_chan_a = {row[0]: row[1] for row in a_items}
+        assert val_to_chan_a["0"] == "90"
+        assert val_to_chan_a["45"] == "135"
+        assert val_to_chan_a["-90"] == "0"
+
         # Change 1.0 to 1.03 (not in test.png)
         win._update_parameter_value("gratings", "1", "1.03")
         mod_gratings = [v[0] for v in win._table_data["gratings"]]
         assert 1.0 not in mod_gratings
         assert 1.03 in mod_gratings
+
+        p_items_mod = [win.period_table.item(item_id, "values") for item_id in win.period_table.get_children()]
+        val_to_chan_p_mod = {row[0]: row[1] for row in p_items_mod}
+        assert "1.03" in val_to_chan_p_mod
+        assert "1" not in val_to_chan_p_mod
 
         # Check all 4 graph images are present
         assert win.panel_images["source"] is not None
@@ -213,10 +237,80 @@ def test_design_window_editing_workflow(tmp_path):
         assert 1.0 in rev_gratings
         assert 1.03 not in rev_gratings
 
+        p_items_rev = [win.period_table.item(item_id, "values") for item_id in win.period_table.get_children()]
+        val_to_chan_p_rev = {row[0]: row[1] for row in p_items_rev}
+        assert "1" in val_to_chan_p_rev
+        assert val_to_chan_p_rev["1"] == "10"
+
         win._close()
     finally:
         try:
             root.destroy()
         except Exception:
             pass
+
+
+def test_parameter_table_entries_rgb8():
+    from dot_ebl_preview.gui_logic import parameter_table_entries
+
+    design = Design(
+        shape=(2, 2), pitch_nm=20000,
+        period_nm=np.array([[900, 1000], [1050, 0]], dtype=np.uint32),
+        angle_deg=np.array([[-90.0, 0.0], [45.0, 0.0]], dtype=np.float64),
+        active=np.array([[True, True], [True, False]]),
+    )
+    raw = np.zeros((2, 2, 3), dtype=np.uint8)
+    raw[0, 0] = [0, 0, 255]      # 900 nm, -90 deg
+    raw[0, 1] = [10, 90, 255]    # 1000 nm, 0 deg
+    raw[1, 0] = [15, 135, 255]   # 1050 nm, 45 deg
+
+    chan_p, p_entries = parameter_table_entries(design, "gratings", "RGB8 indexed", raw)
+    assert chan_p == "R"
+    assert p_entries == [(0.9, "0", 1), (1.0, "10", 1), (1.05, "15", 1)]
+
+    chan_a, a_entries = parameter_table_entries(design, "angles", "RGB8 indexed", raw)
+    assert chan_a == "G"
+    assert a_entries == [(-90.0, "0", 1), (0.0, "90", 1), (45.0, "135", 1)]
+
+    # Fallback without source_raw
+    chan_p2, p_entries2 = parameter_table_entries(design, "gratings", "RGB8 indexed", None)
+    assert chan_p2 == "R"
+    assert p_entries2 == [(0.9, "0", 1), (1.0, "10", 1), (1.05, "15", 1)]
+
+
+def test_parameter_table_entries_rgb16():
+    from dot_ebl_preview.gui_logic import parameter_table_entries
+
+    design = Design(
+        shape=(1, 2), pitch_nm=20000,
+        period_nm=np.array([[950, 1100]], dtype=np.uint32),
+        angle_deg=np.array([[-72.0, 30.0]], dtype=np.float64),
+        active=np.array([[True, True]]),
+    )
+    raw = np.zeros((1, 2, 3), dtype=np.uint16)
+    raw[0, 0] = [950, 25568, 65535]
+    raw[0, 1] = [1100, 35768, 65535]
+
+    chan_p, p_entries = parameter_table_entries(design, "gratings", "RGB16 fixed", raw)
+    assert chan_p == "R"
+    assert p_entries == [(0.95, "950", 1), (1.1, "1100", 1)]
+
+    chan_a, a_entries = parameter_table_entries(design, "angles", "RGB16 fixed", raw)
+    assert chan_a == "G"
+    assert a_entries == [(-72.0, "25568", 1), (30.0, "35768", 1)]
+
+
+def test_parameter_table_entries_empty():
+    from dot_ebl_preview.gui_logic import parameter_table_entries
+
+    design = Design(
+        shape=(2, 2), pitch_nm=20000,
+        period_nm=np.zeros((2, 2), dtype=np.uint32),
+        angle_deg=np.zeros((2, 2), dtype=np.float64),
+        active=np.zeros((2, 2), dtype=bool),
+    )
+    chan_p, p_entries = parameter_table_entries(design, "gratings", "RGB8 indexed", None)
+    assert chan_p == "R"
+    assert p_entries == []
+
 

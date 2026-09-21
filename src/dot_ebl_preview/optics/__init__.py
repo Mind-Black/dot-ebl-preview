@@ -14,6 +14,7 @@ from dot_ebl_preview.optics.tables import (
     premultiplied_XYZ,
 )
 from dot_ebl_preview.optics.engine import (
+    LightSource,
     OpticalSimParams,
     simulate_cell_optical_color,
     render_optical_preview,
@@ -32,6 +33,7 @@ __all__ = [
     "period_real",
     "laser_hues",
     "premultiplied_XYZ",
+    "LightSource",
     "OpticalSimParams",
     "simulate_cell_optical_color",
     "render_optical_preview",

@@ -8,10 +8,12 @@ reference implementation for headless workflows and comparison.
 
 from __future__ import annotations
 
+from typing import Optional, Sequence
 import numpy as np
 from PIL import Image
 
 from dot_ebl_preview.core.model import Design
+from dot_ebl_preview.optics.engine import LightSource
 from dot_ebl_preview.optics.presets import get_optical_preset
 from dot_ebl_preview.optics.tables import premultiplied_XYZ
 
@@ -23,16 +25,19 @@ void main() { gl_Position = vec4(corners[gl_VertexID], 0.0, 1.0); }
 
 
 FRAGMENT_SHADER = """#version 330 core
+#define MAX_LIGHTS 8
 uniform sampler2D u_design;
 uniform sampler1D u_spectrum;
 uniform ivec2 u_size;
 uniform ivec2 u_target_size;
 uniform float u_pitch_mm;
 uniform float u_orientation_deg;
-uniform vec3 u_light_pos;
+uniform int u_num_lights;
+uniform vec3 u_light_pos[MAX_LIGHTS];
 uniform vec3 u_camera_pos;
 uniform float u_aperture_mm;
-uniform float u_source_size_mm;
+uniform float u_source_size_mm[MAX_LIGHTS];
+uniform float u_light_intensity[MAX_LIGHTS];
 uniform float u_light_y;
 uniform vec2 u_white_xy;
 out vec4 pixel_color;
@@ -119,47 +124,52 @@ void main() {
     vec3 world_pos = vec3(
         (float(output_coord.x) + 0.5 - float(u_size.x) * 0.5) * u_pitch_mm,
         -(float(row) + 0.5 - float(u_size.y) * 0.5) * u_pitch_mm, 0.0);
-    vec3 light_vector = u_light_pos - world_pos;
     vec3 camera_vector = u_camera_pos - world_pos;
-    float light_length = length(light_vector);
     float camera_length = length(camera_vector);
-    if (light_length < 1.0e-9 || camera_length < 1.0e-9) {
+    if (camera_length < 1.0e-9 || camera_vector.z <= 0.0) {
         pixel_color = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
-    vec3 light = light_vector / light_length;
     vec3 camera = camera_vector / camera_length;
-    float cos_inc = max(0.0, light.z);
-    if (cos_inc <= 0.0 || camera.z <= 0.0) {
-        pixel_color = vec4(0.0, 0.0, 0.0, 1.0);
-        return;
-    }
 
     float angle = radians(cell.y + u_orientation_deg);
     vec2 grating_vector = vec2(-sin(angle), cos(angle));
     float detector_radius = max(0.0, u_aperture_mm) / camera_length;
-    float source_radius = max(0.0, u_source_size_mm) / light_length;
     vec3 xyz = vec3(0.0);
 
-    for (int index = 0; index < 77; ++index) {
-        float wavelength_nm = 380.0 + 5.0 * float(index);
-        float sigma_diff = 0.5 * wavelength_nm / (u_pitch_mm * 1.0e6);
-        float sigma_beam_sq = sigma_diff * sigma_diff + 0.25 * source_radius * source_radius;
-        float sigma_sq = sigma_beam_sq + 0.25 * detector_radius * detector_radius;
-        if (sigma_sq <= 0.0) continue;
-        float ratio_sq = (detector_radius * detector_radius) / max(1.0e-12, sigma_beam_sq);
-        float aligned_fraction = 1.0 - exp(-0.5 * ratio_sq);
-        vec3 spectrum = texelFetch(u_spectrum, index, 0).rgb;
+    for (int l = 0; l < u_num_lights && l < MAX_LIGHTS; ++l) {
+        float intensity = u_light_intensity[l];
+        if (intensity <= 0.0) continue;
 
-        for (int order = -1; order <= 1; order += 2) {
-            vec2 alpha_xy = -light.xy + float(order) * (wavelength_nm / period_nm) * grating_vector;
-            float alpha12 = dot(alpha_xy, alpha_xy);
-            if (alpha12 > 1.0) continue;
-            float alpha_z = sqrt(max(0.0, 1.0 - alpha12));
-            vec3 alpha = vec3(alpha_xy, alpha_z);
-            float theta = acos(clamp(dot(alpha, camera), -1.0, 1.0));
-            float angular_weight = aligned_fraction * exp(-0.5 * theta * theta / sigma_sq);
-            xyz += spectrum * cos_inc * alpha_z * angular_weight;
+        vec3 light_vector = u_light_pos[l] - world_pos;
+        float light_length = length(light_vector);
+        if (light_length < 1.0e-9) continue;
+        vec3 light = light_vector / light_length;
+        float cos_inc = max(0.0, light.z);
+        if (cos_inc <= 0.0) continue;
+
+        float source_radius = max(0.0, u_source_size_mm[l]) / light_length;
+
+        for (int index = 0; index < 77; ++index) {
+            float wavelength_nm = 380.0 + 5.0 * float(index);
+            float sigma_diff = 0.5 * wavelength_nm / (u_pitch_mm * 1.0e6);
+            float sigma_beam_sq = sigma_diff * sigma_diff + 0.25 * source_radius * source_radius;
+            float sigma_sq = sigma_beam_sq + 0.25 * detector_radius * detector_radius;
+            if (sigma_sq <= 0.0) continue;
+            float ratio_sq = (detector_radius * detector_radius) / max(1.0e-12, sigma_beam_sq);
+            float aligned_fraction = 1.0 - exp(-0.5 * ratio_sq);
+            vec3 spectrum = texelFetch(u_spectrum, index, 0).rgb;
+
+            for (int order = -1; order <= 1; order += 2) {
+                vec2 alpha_xy = -light.xy + float(order) * (wavelength_nm / period_nm) * grating_vector;
+                float alpha12 = dot(alpha_xy, alpha_xy);
+                if (alpha12 > 1.0) continue;
+                float alpha_z = sqrt(max(0.0, 1.0 - alpha12));
+                vec3 alpha = vec3(alpha_xy, alpha_z);
+                float theta = acos(clamp(dot(alpha, camera), -1.0, 1.0));
+                float angular_weight = aligned_fraction * exp(-0.5 * theta * theta / sigma_sq);
+                xyz += spectrum * (intensity * cos_inc * alpha_z * angular_weight);
+            }
         }
     }
 
@@ -233,14 +243,17 @@ class ReusableGLRenderer:
         self.data_texture, self.spectrum_texture, self.color_texture = [int(v) for v in GL.glGenTextures(3)]
         self.framebuffer = int(GL.glGenFramebuffers(1))
 
-        self.uniforms = {
-            name: GL.glGetUniformLocation(self.program, name)
-            for name in (
-                "u_design", "u_spectrum", "u_size", "u_target_size", "u_pitch_mm",
-                "u_orientation_deg", "u_light_pos", "u_camera_pos", "u_aperture_mm",
-                "u_source_size_mm", "u_light_y", "u_white_xy",
-            )
-        }
+        uniform_names = (
+            "u_design", "u_spectrum", "u_size", "u_target_size", "u_pitch_mm",
+            "u_orientation_deg", "u_num_lights", "u_light_pos", "u_camera_pos", "u_aperture_mm",
+            "u_source_size_mm", "u_light_intensity", "u_light_y", "u_white_xy",
+        )
+        self.uniforms = {}
+        for name in uniform_names:
+            loc = GL.glGetUniformLocation(self.program, name)
+            if loc == -1 and name in ("u_light_pos", "u_source_size_mm", "u_light_intensity"):
+                loc = GL.glGetUniformLocation(self.program, f"{name}[0]")
+            self.uniforms[name] = loc
 
         spectrum = np.ascontiguousarray(premultiplied_XYZ(), dtype=np.float32)
         self.light_xyz = spectrum.sum(axis=0, dtype=np.float64)
@@ -257,9 +270,10 @@ class ReusableGLRenderer:
         self.target_size: tuple[int, int] | None = None
         self.closed = False
 
-    def render(self, design: Design, light_pos: tuple[float, float, float],
-               camera_pos: tuple[float, float, float], orientation_deg: float = 0.0,
-               aperture_mm: float = 2.0, source_size_mm: float = 20.0) -> Image.Image:
+    def render(self, design: Design, light_pos: tuple[float, float, float] = (0.0, 229.430573, 327.660818),
+               camera_pos: tuple[float, float, float] = (0.0, 0.0, 300.0), orientation_deg: float = 0.0,
+               aperture_mm: float = 2.0, source_size_mm: float = 20.0,
+               lights: Optional[Sequence[LightSource]] = None) -> Image.Image:
         import glfw
         from OpenGL import GL
 
@@ -320,12 +334,32 @@ class ReusableGLRenderer:
         GL.glUniform2i(self.uniforms["u_target_size"], w, h)
         GL.glUniform1f(self.uniforms["u_pitch_mm"], design.pitch_nm * 1.0e-6)
         GL.glUniform1f(self.uniforms["u_orientation_deg"], orientation_deg)
-        GL.glUniform3f(self.uniforms["u_light_pos"], *light_pos)
         GL.glUniform3f(self.uniforms["u_camera_pos"], *camera_pos)
         GL.glUniform1f(self.uniforms["u_aperture_mm"], aperture_mm)
-        GL.glUniform1f(self.uniforms["u_source_size_mm"], source_size_mm)
         GL.glUniform1f(self.uniforms["u_light_y"], float(self.light_xyz[1]))
         GL.glUniform2f(self.uniforms["u_white_xy"], *self.white_xy)
+
+        MAX_LIGHTS = 8
+        if lights is not None and len(lights) > 0:
+            effective_lights = list(lights)
+        else:
+            effective_lights = [LightSource(pos=light_pos, source_radius_factor=source_size_mm, intensity=1.0)]
+
+        num_lights = min(MAX_LIGHTS, len(effective_lights))
+        pos_array = np.zeros(MAX_LIGHTS * 3, dtype=np.float32)
+        sizes_array = np.zeros(MAX_LIGHTS, dtype=np.float32)
+        intensities_array = np.zeros(MAX_LIGHTS, dtype=np.float32)
+
+        for i in range(num_lights):
+            l = effective_lights[i]
+            pos_array[i * 3:i * 3 + 3] = l.pos
+            sizes_array[i] = l.source_size_mm
+            intensities_array[i] = getattr(l, "intensity", 1.0)
+
+        GL.glUniform1i(self.uniforms["u_num_lights"], num_lights)
+        GL.glUniform3fv(self.uniforms["u_light_pos"], MAX_LIGHTS, pos_array)
+        GL.glUniform1fv(self.uniforms["u_source_size_mm"], MAX_LIGHTS, sizes_array)
+        GL.glUniform1fv(self.uniforms["u_light_intensity"], MAX_LIGHTS, intensities_array)
 
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         raw = GL.glReadPixels(0, 0, w, h, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
@@ -374,9 +408,18 @@ def get_thread_renderer() -> ReusableGLRenderer:
     return renderer
 
 
-def render_opengl_preview(design: Design, light_pos: tuple[float, float, float],
-                          camera_pos: tuple[float, float, float], orientation_deg: float = 0.0,
-                          aperture_mm: float = 2.0, source_size_mm: float = 20.0) -> Image.Image:
+def render_opengl_preview(design: Design, light_pos: tuple[float, float, float] = (0.0, 229.430573, 327.660818),
+                          camera_pos: tuple[float, float, float] = (0.0, 0.0, 300.0), orientation_deg: float = 0.0,
+                          aperture_mm: float = 2.0, source_size_mm: float = 20.0,
+                          lights: Optional[Sequence[LightSource]] = None) -> Image.Image:
     """Render the corrected spectral preview using a reusable hidden OpenGL context."""
     renderer = get_thread_renderer()
-    return renderer.render(design, light_pos, camera_pos, orientation_deg, aperture_mm, source_size_mm)
+    return renderer.render(
+        design,
+        light_pos=light_pos,
+        camera_pos=camera_pos,
+        orientation_deg=orientation_deg,
+        aperture_mm=aperture_mm,
+        source_size_mm=source_size_mm,
+        lights=lights,
+    )

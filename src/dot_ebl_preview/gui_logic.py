@@ -22,6 +22,7 @@ from dot_ebl_preview.io.legacy_unity import (
     UNITY_LASER_HUES, UNITY_PERIOD_REAL_NM, import_legacy_unity_hsv,
 )
 from dot_ebl_preview.jobs.bundle import stage_and_export_bundle
+from dot_ebl_preview.optics.engine import LightSource
 from dot_ebl_preview.optics.presets import get_optical_preset
 from dot_ebl_preview.preview.renderer import render_preview_image
 
@@ -68,6 +69,134 @@ def parameter_counts(design: Design, kind: Literal["gratings", "angles"]) -> lis
     return [(float(value) / scale, int(count)) for value, count in zip(unique, counts)]
 
 
+def _vectorized_unity_rgb_to_hsv(
+    r: np.ndarray, g: np.ndarray, b: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    c_b_step = (b <= g)
+    p_x = np.where(c_b_step, g, b)
+    p_y = np.where(c_b_step, b, g)
+    p_z = np.where(c_b_step, 0.0, -1.0)
+    p_w = np.where(c_b_step, -1.0 / 3.0, 2.0 / 3.0)
+
+    px_le_r = (p_x <= r)
+    q_x = np.where(px_le_r, r, p_x)
+    q_y = p_y
+    q_z = np.where(px_le_r, p_z, p_w)
+    q_w = np.where(px_le_r, p_x, r)
+
+    d = q_x - np.minimum(q_w, q_y)
+    e = 1.0e-10
+    h = np.abs(q_z + (q_w - q_y) / (6.0 * d + e))
+    s = d / (q_x + e)
+    v = q_x
+    return h, s, v
+
+
+def _canonical_channel_value(
+    val: float, kind: Literal["gratings", "angles"], image_format: str,
+) -> str:
+    """Calculate the canonical channel code for a parameter value when source_raw is unavailable."""
+    if kind == "gratings":
+        nm = int(round(val * 1000.0))
+        if image_format == "RGB8 indexed":
+            profile = RGB8IndexedProfile()
+            if nm in profile.period_lut_nm:
+                return str(profile.period_lut_nm.index(nm))
+            return str(max(0, min(255, int(round((nm - 900) / 10)))))
+        elif image_format == "RGB16 fixed":
+            return str(nm)
+        elif image_format in ("Holtida legacy HLS", "Learning Shaders HLS"):
+            p_norm = np.clip((val - 0.9) / 0.3, 0.0, 1.0)
+            idx = int(round(p_norm * 359))
+            return str(idx // 2)
+        elif image_format == "Unity HSV":
+            diffs = [abs(nm - p) for p in UNITY_PERIOD_REAL_NM]
+            idx = int(np.argmin(diffs))
+            return str(int(round(UNITY_LASER_HUES[idx] * 255.0)))
+        return str(nm)
+    else:
+        deg = float(val)
+        if image_format == "RGB8 indexed":
+            profile = RGB8IndexedProfile()
+            deg_round = round(deg, 1)
+            for idx, a in enumerate(profile.angle_lut_deg):
+                if math.isclose(a, deg_round, abs_tol=1e-3):
+                    return str(idx)
+            return str(max(0, min(255, int(round(deg + 90.0)))))
+        elif image_format == "RGB16 fixed":
+            return str(int(round(deg * 100.0)) + 32768)
+        elif image_format in ("Holtida legacy HLS", "Learning Shaders HLS"):
+            rot_range = 180.0 if image_format == "Holtida legacy HLS" else 90.0
+            sats = np.clip((deg / rot_range) * 100.0 + 50.0, 0.0, 100.0)
+            return str(int(round(sats * 255.0 / 100.0)))
+        elif image_format == "Unity HSV":
+            min_angle, max_angle = -10.0, 10.0
+            s_norm = np.clip((deg - min_angle) / (max_angle - min_angle), 0.0, 1.0)
+            return str(int(round(s_norm * 255.0)))
+        return str(int(round(deg)))
+
+
+def parameter_table_entries(
+    design: Design,
+    kind: Literal["gratings", "angles"],
+    image_format: str = "RGB8 indexed",
+    source_raw: np.ndarray | None = None,
+) -> tuple[str, list[tuple[float, str, int]]]:
+    """Distinct active parameters, their respective image channel values, and cell counts.
+
+    Returns:
+        tuple of (channel_name, entries), where each entry is (value, channel_value_str, count).
+        channel_name is 'R', 'G', 'H', or 'S'.
+    """
+    counts = parameter_counts(design, kind)
+    if image_format in ("Holtida legacy HLS", "Learning Shaders HLS", "Unity HSV"):
+        chan_name = "H" if kind == "gratings" else "S"
+    else:
+        chan_name = "R" if kind == "gratings" else "G"
+
+    if not counts or not np.any(design.active):
+        return chan_name, []
+
+    scale = 1000.0 if kind == "gratings" else 1.0
+
+    chan_arr: np.ndarray | None = None
+    if source_raw is not None and source_raw.ndim == 3 and source_raw.shape[:2] == design.shape:
+        if image_format in ("Holtida legacy HLS", "Learning Shaders HLS"):
+            h, _l, s = rgb_to_opencv_hls(source_raw)
+            chan_arr = h if kind == "gratings" else s
+        elif image_format == "Unity HSV":
+            app = source_raw.astype(np.float32) / 255.0
+            h_vec, s_vec, _v_vec = _vectorized_unity_rgb_to_hsv(app[:, :, 0], app[:, :, 1], app[:, :, 2])
+            chan_arr = np.clip(np.round((h_vec if kind == "gratings" else s_vec) * 255.0), 0, 255).astype(np.uint8)
+        else:
+            # RGB8 indexed or RGB16 fixed
+            chan_arr = source_raw[:, :, 0] if kind == "gratings" else source_raw[:, :, 1]
+
+    entries: list[tuple[float, str, int]] = []
+    for val, cnt in counts:
+        orig_val = int(round(val * scale)) if kind == "gratings" else val
+        if kind == "gratings":
+            mask = design.active & (design.period_nm == orig_val)
+        else:
+            mask = design.active & np.isclose(design.angle_deg, orig_val, atol=1e-5)
+
+        if chan_arr is not None and np.any(mask):
+            raw_vals = np.unique(chan_arr[mask])
+            if len(raw_vals) == 1:
+                chan_str = str(int(raw_vals[0]))
+            elif len(raw_vals) <= 3:
+                chan_str = ", ".join(str(int(x)) for x in raw_vals)
+            else:
+                chan_str = f"{int(raw_vals.min())}–{int(raw_vals.max())}"
+        else:
+            chan_str = _canonical_channel_value(val, kind, image_format)
+
+        entries.append((val, chan_str, cnt))
+
+    return chan_name, entries
+
+
+
 def parameter_map(design: Design, kind: Literal["gratings", "angles"]) -> Image.Image:
     """Color map of active periods or angles. Inactive cells are dark gray."""
     if kind not in ("gratings", "angles"):
@@ -108,18 +237,36 @@ class SceneSettings:
     orientation_deg: float = 0.0
     aperture_mm: float = 2.0
     source_size_mm: float = 20.0
+    lights: tuple[LightSource, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.lights is None:
+            object.__setattr__(
+                self,
+                "lights",
+                (LightSource(pos=self.light_pos, source_radius_factor=self.source_size_mm, intensity=1.0),),
+            )
+        else:
+            if self.light_pos == (0.0, 229.430573, 327.660818) and len(self.lights) > 0:
+                object.__setattr__(self, "light_pos", self.lights[0].pos)
+                object.__setattr__(self, "source_size_mm", self.lights[0].source_size_mm)
 
     def validated(self) -> "SceneSettings":
-        values = (*self.light_pos, *self.camera_pos, self.orientation_deg, self.aperture_mm, self.source_size_mm)
+        if not self.lights:
+            raise ValueError("SceneSettings requires at least one light source.")
+        if len(self.lights) > 8:
+            raise ValueError(f"Maximum 8 light sources supported, got {len(self.lights)}.")
+        for light in self.lights:
+            light.validated()
+        values = (*self.camera_pos, self.orientation_deg, self.aperture_mm)
         if not all(math.isfinite(value) for value in values):
             raise ValueError("Scene coordinates, orientation, aperture and source size must be finite numbers.")
-        if self.light_pos == (0.0, 0.0, 0.0) or self.camera_pos == (0.0, 0.0, 0.0):
-            raise ValueError("The source and observer must be away from the design center.")
+        if self.camera_pos == (0.0, 0.0, 0.0):
+            raise ValueError("The observer must be away from the design center.")
         if self.aperture_mm < 0.0:
             raise ValueError("Observer aperture must be non-negative.")
-        if self.source_size_mm < 0.0:
-            raise ValueError("Light source physical size must be non-negative.")
         return self
+
 
 
 def position_from_direction(azimuth_deg: float, elevation_deg: float, distance_mm: float) -> tuple[float, float, float]:
@@ -147,10 +294,11 @@ def direction_from_position(position: tuple[float, float, float]) -> tuple[float
 
 
 def render_scene(design: Design, settings: SceneSettings) -> Image.Image:
-    """Run the CPU reference algorithm with the selected source, observer and rotation."""
+    """Run the CPU reference algorithm with the selected sources, observer and rotation."""
     settings.validated()
     params = replace(
         get_optical_preset("corrected"),
+        lights=settings.lights,
         light_pos=settings.light_pos,
         camera_pos=settings.camera_pos,
         aperture_radius_factor=settings.aperture_mm,
@@ -167,6 +315,7 @@ def render_scene_gpu(design: Design, settings: SceneSettings) -> Image.Image:
 
     return render_opengl_preview(
         design,
+        lights=settings.lights,
         light_pos=settings.light_pos,
         camera_pos=settings.camera_pos,
         orientation_deg=settings.orientation_deg,

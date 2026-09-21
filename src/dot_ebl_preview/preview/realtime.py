@@ -13,6 +13,7 @@ from PIL import Image
 
 from dot_ebl_preview.core.model import Design
 from dot_ebl_preview.gui_logic import SceneSettings, direction_from_position, position_from_direction
+from dot_ebl_preview.optics.engine import LightSource
 from dot_ebl_preview.optics.presets import get_optical_preset
 from dot_ebl_preview.optics.tables import premultiplied_XYZ
 from dot_ebl_preview.preview.gl_renderer import (
@@ -100,6 +101,7 @@ class RealtimeViewer:
         self._captures: Queue[int] = Queue()
         self._lock = Lock()
         self._scene = scene.validated()
+        self.active_light_index: int = 0
         self._serial = 0
         self._changed_at = monotonic()
         self._stop = Event()
@@ -120,9 +122,15 @@ class RealtimeViewer:
         return self._thread.is_alive()
 
     @property
+    def scene(self) -> SceneSettings:
+        with self._lock:
+            return self._scene
+
+    @property
     def serial(self) -> int:
         with self._lock:
             return self._serial
+
 
     def update_scene(self, scene: SceneSettings) -> None:
         scene.validated()
@@ -146,16 +154,29 @@ class RealtimeViewer:
             return self._scene, self._serial, self._changed_at
 
     def orbit(self, which: str, delta_az: float = 0.0, delta_el: float = 0.0,
-              distance_factor: float = 1.0) -> None:
+              distance_factor: float = 1.0, light_index: int | None = None) -> None:
         """Update the scene from a mouse gesture in either the Tk pane or GLFW window."""
         if which not in ("camera", "light"):
             raise ValueError(f"Unknown orbit target: {which}")
         scene, _serial, _changed = self._snapshot()
-        point = scene.camera_pos if which == "camera" else scene.light_pos
-        az, el, distance = direction_from_position(point)
-        updated = position_from_direction(az + delta_az, max(-90.0, min(90.0, el + delta_el)),
-                                          max(1.0, min(1000.0, distance * distance_factor)))
-        scene = replace(scene, **({"camera_pos": updated} if which == "camera" else {"light_pos": updated}))
+        if which == "camera":
+            az, el, distance = direction_from_position(scene.camera_pos)
+            updated = position_from_direction(az + delta_az, max(-90.0, min(90.0, el + delta_el)),
+                                              max(1.0, min(1000.0, distance * distance_factor)))
+            scene = replace(scene, camera_pos=updated)
+        else:
+            idx = self.active_light_index if light_index is None else light_index
+            lights = list(scene.lights) if scene.lights else [LightSource(pos=scene.light_pos, source_radius_factor=scene.source_size_mm)]
+            if 0 <= idx < len(lights):
+                target_light = lights[idx]
+                az, el, distance = direction_from_position(target_light.pos)
+                updated_pos = position_from_direction(
+                    az + delta_az, max(-90.0, min(90.0, el + delta_el)),
+                    max(1.0, min(1000.0, distance * distance_factor)),
+                )
+                lights[idx] = replace(target_light, pos=updated_pos)
+            new_lights = tuple(lights)
+            scene = replace(scene, lights=new_lights, light_pos=new_lights[0].pos)
         self.update_scene(scene)
         self.events.put(("scene", scene))
 
@@ -308,14 +329,17 @@ class RealtimeViewer:
                         raise RuntimeError("OpenGL could not create a full preview render target.")
                 return full_fbo, full_texture
 
-            uniforms = {
-                name: GL.glGetUniformLocation(spectral_program, name)
-                for name in (
-                    "u_design", "u_spectrum", "u_size", "u_target_size", "u_pitch_mm",
-                    "u_orientation_deg", "u_light_pos", "u_camera_pos", "u_aperture_mm",
-                    "u_source_size_mm", "u_light_y", "u_white_xy",
-                )
-            }
+            uniform_names = (
+                "u_design", "u_spectrum", "u_size", "u_target_size", "u_pitch_mm",
+                "u_orientation_deg", "u_num_lights", "u_light_pos", "u_camera_pos", "u_aperture_mm",
+                "u_source_size_mm", "u_light_intensity", "u_light_y", "u_white_xy",
+            )
+            uniforms = {}
+            for name in uniform_names:
+                loc = GL.glGetUniformLocation(spectral_program, name)
+                if loc == -1 and name in ("u_light_pos", "u_source_size_mm", "u_light_intensity"):
+                    loc = GL.glGetUniformLocation(spectral_program, f"{name}[0]")
+                uniforms[name] = loc
 
             GL.glDisable(GL.GL_FRAMEBUFFER_SRGB)
             GL.glUseProgram(spectral_program)
@@ -336,10 +360,26 @@ class RealtimeViewer:
                 GL.glBindTexture(GL.GL_TEXTURE_1D, spectrum_texture)
                 GL.glUniform2i(uniforms["u_target_size"], *size)
                 GL.glUniform1f(uniforms["u_orientation_deg"], scene.orientation_deg)
-                GL.glUniform3f(uniforms["u_light_pos"], *scene.light_pos)
                 GL.glUniform3f(uniforms["u_camera_pos"], *scene.camera_pos)
                 GL.glUniform1f(uniforms["u_aperture_mm"], scene.aperture_mm)
-                GL.glUniform1f(uniforms["u_source_size_mm"], scene.source_size_mm)
+
+                MAX_LIGHTS = 8
+                lights = scene.lights if scene.lights else (LightSource(pos=scene.light_pos, source_radius_factor=scene.source_size_mm),)
+                num_lights = min(MAX_LIGHTS, len(lights))
+                pos_array = np.zeros(MAX_LIGHTS * 3, dtype=np.float32)
+                sizes_array = np.zeros(MAX_LIGHTS, dtype=np.float32)
+                intensities_array = np.zeros(MAX_LIGHTS, dtype=np.float32)
+
+                for i in range(num_lights):
+                    l = lights[i]
+                    pos_array[i * 3:i * 3 + 3] = l.pos
+                    sizes_array[i] = l.source_size_mm
+                    intensities_array[i] = getattr(l, "intensity", 1.0)
+
+                GL.glUniform1i(uniforms["u_num_lights"], num_lights)
+                GL.glUniform3fv(uniforms["u_light_pos"], MAX_LIGHTS, pos_array)
+                GL.glUniform1fv(uniforms["u_source_size_mm"], MAX_LIGHTS, sizes_array)
+                GL.glUniform1fv(uniforms["u_light_intensity"], MAX_LIGHTS, intensities_array)
                 GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
 
             def read_frame(fbo: int, size: tuple[int, int]) -> Image.Image:

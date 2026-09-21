@@ -92,6 +92,15 @@ def main(args: Optional[list[str]] = None) -> int:
     p_preview.add_argument("--pitch-um", type=float, default=20.0)
     p_preview.add_argument("--aperture-mm", type=float, default=2.0, help="Observer aperture radius in mm (default: 2.0)")
     p_preview.add_argument("--light-size-mm", type=float, default=20.0, help="Light source physical radius in mm (default: 20.0)")
+    p_preview.add_argument(
+        "--light",
+        action="append",
+        nargs="+",
+        type=float,
+        metavar="VAL",
+        help="Specify light source: X Y Z [size_mm] [intensity] (can be specified multiple times for multiple lights)",
+    )
+
 
     parsed = parser.parse_args(args)
 
@@ -155,14 +164,32 @@ def main(args: Optional[list[str]] = None) -> int:
             design = build_design(in_path, encoding_profile=parsed.profile, pitch_nm=pitch_nm)
 
         from dataclasses import replace
+        from dot_ebl_preview.optics.engine import LightSource
         from dot_ebl_preview.optics.presets import get_optical_preset
 
-        params = replace(
-            get_optical_preset(parsed.preset),
-            aperture_radius_factor=parsed.aperture_mm,
-            source_radius_factor=parsed.light_size_mm,
-        )
+        preset_params = get_optical_preset(parsed.preset)
+        if parsed.light:
+            lights = []
+            for l_vals in parsed.light:
+                if len(l_vals) < 3:
+                    raise ValueError(f"--light requires at least 3 values (X Y Z), got {l_vals}")
+                pos = (float(l_vals[0]), float(l_vals[1]), float(l_vals[2]))
+                s_mm = float(l_vals[3]) if len(l_vals) > 3 else parsed.light_size_mm
+                intens = float(l_vals[4]) if len(l_vals) > 4 else 1.0
+                lights.append(LightSource(pos=pos, source_radius_factor=s_mm, intensity=intens))
+            params = replace(
+                preset_params,
+                aperture_radius_factor=parsed.aperture_mm,
+                lights=tuple(lights),
+            )
+        else:
+            params = replace(
+                preset_params,
+                aperture_radius_factor=parsed.aperture_mm,
+                source_radius_factor=parsed.light_size_mm,
+            )
         out_file = render_preview_to_file(design, parsed.output, preset=parsed.preset, params=params)
+
         print(f"Optical preview saved to {out_file}")
         return 0
 

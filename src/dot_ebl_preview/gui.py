@@ -15,10 +15,10 @@ from PIL import Image, ImageTk
 
 from dot_ebl_preview.core.model import Design
 from dot_ebl_preview.gui_logic import (
-    INPUT_FORMATS, SceneSettings, apply_parameter_edit, direction_from_position,
+    INPUT_FORMATS, LightSource, SceneSettings, apply_parameter_edit, direction_from_position,
     encode_gui_design_image, export_gui_bundle, load_gui_design, parameter_counts,
-    parameter_map, position_from_direction, render_scene, render_scene_gpu, save_gds,
-    save_gui_design_image,
+    parameter_map, parameter_table_entries, position_from_direction, render_scene,
+    render_scene_gpu, save_gds, save_gui_design_image,
 )
 from dot_ebl_preview.io.images import load_image_rgb
 from dot_ebl_preview.preview.realtime import RealtimeViewer
@@ -63,7 +63,7 @@ class DesignWindow:
         self._inline_entry: ttk.Entry | None = None
         self._table_selected_vars: dict[str, tk.StringVar] = {}
         self._table_entry_vars: dict[str, tk.StringVar] = {}
-        self._table_data: dict[str, list[tuple[float, int]]] = {"gratings": [], "angles": []}
+        self._table_data: dict[str, list[tuple]] = {"gratings": [], "angles": []}
         self.point_sliders: dict[str, list[ttk.Scale]] = {}
 
         self.path_var = tk.StringVar()
@@ -73,9 +73,16 @@ class DesignWindow:
         self.renderer_var = tk.StringVar(value="OpenGL (fast)")
         self.live_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Choose a design image or a saved .npz design.")
+        self.sources_data: list[dict[str, str]] = [{
+            "mode": "XYZ", "x": "0", "y": "229.4306", "z": "327.6608",
+            "az": "90", "el": "55", "distance": "400",
+            "size": "20.0", "intensity": "1.0",
+        }]
+        self.active_source_idx: int = 0
+        self.source_selector_var = tk.StringVar(value="Source 1 (Primary)")
         self.source_vars = self._point_vars(
             ("0", "229.4306", "327.6608"), ("90", "55", "400"),
-            extra={"size": "20.0"},
+            extra={"size": "20.0", "intensity": "1.0"},
         )
         self.observer_vars = self._point_vars(
             ("0", "0", "300"), ("0", "90", "300"),
@@ -151,11 +158,17 @@ class DesignWindow:
         ttk.Entry(scene, textvariable=self.orientation_var, width=12).grid(row=0, column=1, sticky=tk.E)
         self.orientation_slider = self._linked_slider(scene, 1, self.orientation_var, -180.0, 180.0)
         scene.columnconfigure(0, weight=1)
-        self._point_editor(scene, "Illumination", self.source_vars, 2,
-                           extra_caption="Source radius (mm)", extra_key="size", extra_range=(0.0, 50.0))
-        self._point_editor(scene, "Observation", self.observer_vars, 3,
-                           extra_caption="Aperture radius (mm)", extra_key="aperture", extra_range=(0.1, 30.0))
-        ttk.Label(scene, text="Drag sliders or edit values. In the OpenGL pane: left drag moves the observer; right drag moves the light; wheel changes distance (Shift+wheel for light).",
+        self._point_editor(
+            scene, "Illumination", self.source_vars, 2,
+            extra_items=[("Source radius (mm)", "size", (0.0, 50.0)),
+                         ("Source intensity", "intensity", (0.0, 2.0))],
+            is_illumination=True,
+        )
+        self._point_editor(
+            scene, "Observation", self.observer_vars, 3,
+            extra_items=[("Aperture radius (mm)", "aperture", (0.1, 30.0))],
+        )
+        ttk.Label(scene, text="Drag sliders or edit values. In the OpenGL pane: left drag moves the observer; right drag moves the active light; wheel changes distance (Shift+wheel for light).",
                   wraplength=355).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
         ttk.Label(scene, text="Renderer").grid(row=5, column=0, sticky=tk.W, pady=(7, 0))
         ttk.Combobox(scene, textvariable=self.renderer_var, values=("OpenGL (fast)", "CPU reference"),
@@ -219,11 +232,14 @@ class DesignWindow:
         table_frame = ttk.Frame(holder)
         table_frame.pack(fill=tk.BOTH, expand=True)
 
-        table = ttk.Treeview(table_frame, columns=("value", "count"), show="headings", height=5)
+        chan_label = "Channel (R)" if kind == "gratings" else "Channel (G)"
+        table = ttk.Treeview(table_frame, columns=("value", "channel", "count"), show="headings", height=5)
         table.heading("value", text=title)
+        table.heading("channel", text=chan_label)
         table.heading("count", text="Cells")
-        table.column("value", width=150, stretch=True)
-        table.column("count", width=90, stretch=False, anchor=tk.E)
+        table.column("value", width=120, stretch=True)
+        table.column("channel", width=95, stretch=False, anchor=tk.CENTER)
+        table.column("count", width=85, stretch=False, anchor=tk.E)
         scroll = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=table.yview)
         table.configure(yscrollcommand=scroll.set)
         table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -294,29 +310,49 @@ class DesignWindow:
     def _point_editor(self, parent: ttk.LabelFrame, title: str,
                       variables: dict[str, tk.StringVar], row: int,
                       extra_caption: str = "", extra_key: str = "",
-                      extra_range: tuple[float, float] = (0.0, 30.0)) -> None:
+                      extra_range: tuple[float, float] = (0.0, 30.0),
+                      extra_items: list[tuple[str, str, tuple[float, float]]] | None = None,
+                      is_illumination: bool = False) -> None:
         group = ttk.LabelFrame(parent, text=title, padding=5)
         group.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-        ttk.Label(group, text="Specify by").grid(row=0, column=0, sticky=tk.W)
+
+        start_row = 0
+        if is_illumination:
+            src_frame = ttk.Frame(group)
+            src_frame.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 6))
+            ttk.Label(src_frame, text="Source:").pack(side=tk.LEFT)
+            self.source_combo = ttk.Combobox(src_frame, textvariable=self.source_selector_var,
+                                             values=self._source_names(), state="readonly", width=16)
+            self.source_combo.pack(side=tk.LEFT, padx=(4, 6))
+            self.source_combo.bind("<<ComboboxSelected>>", self._source_selection_changed)
+            self.add_source_btn = ttk.Button(src_frame, text="+ Add", command=self._add_source, width=6)
+            self.add_source_btn.pack(side=tk.LEFT, padx=(0, 4))
+            self.remove_source_btn = ttk.Button(src_frame, text="– Remove", command=self._remove_source, width=8)
+            self.remove_source_btn.pack(side=tk.LEFT)
+
+            self._update_source_buttons()
+            start_row = 1
+
+        ttk.Label(group, text="Specify by").grid(row=start_row, column=0, sticky=tk.W)
         ttk.Combobox(group, textvariable=variables["mode"], values=("XYZ", "Direction"),
-                     state="readonly", width=12).grid(row=0, column=1, columnspan=2, sticky=tk.W)
+                     state="readonly", width=12).grid(row=start_row, column=1, columnspan=2, sticky=tk.W)
         entries: dict[str, ttk.Entry] = {}
         for column, (label, key) in enumerate((("X", "x"), ("Y", "y"), ("Z", "z"))):
-            ttk.Label(group, text=f"{label} mm").grid(row=1, column=column)
+            ttk.Label(group, text=f"{label} mm").grid(row=start_row + 1, column=column)
             entry = ttk.Entry(group, textvariable=variables[key], width=9)
-            entry.grid(row=2, column=column, padx=2, sticky="ew")
+            entry.grid(row=start_row + 2, column=column, padx=2, sticky="ew")
             entries[key] = entry
         for column, (label, key) in enumerate((("Azimuth °", "az"), ("Elevation °", "el"), ("Distance mm", "distance"))):
-            ttk.Label(group, text=label).grid(row=3, column=column, pady=(4, 0))
+            ttk.Label(group, text=label).grid(row=start_row + 3, column=column, pady=(4, 0))
             entry = ttk.Entry(group, textvariable=variables[key], width=9)
-            entry.grid(row=4, column=column, padx=2, sticky="ew")
+            entry.grid(row=start_row + 4, column=column, padx=2, sticky="ew")
             entries[key] = entry
             group.columnconfigure(column, weight=1)
 
         slider_controls = []
         for index in range(3):
             label = ttk.Label(group, width=12)
-            label.grid(row=5 + index, column=0, sticky=tk.W)
+            label.grid(row=start_row + 5 + index, column=0, sticky=tk.W)
             state = {"variable": variables["x"], "updating": False, "low": -100.0, "high": 100.0}
 
             def moved(value: str, binding=state) -> None:
@@ -324,7 +360,7 @@ class DesignWindow:
                     binding["variable"].set(f"{float(value):.2f}")
 
             slider = ttk.Scale(group, orient=tk.HORIZONTAL, command=moved)
-            slider.grid(row=5 + index, column=1, columnspan=2, sticky="ew", pady=2)
+            slider.grid(row=start_row + 5 + index, column=1, columnspan=2, sticky="ew", pady=2)
             slider_controls.append((label, slider, state))
         self.point_sliders[title] = [slider for _label, slider, _state in slider_controls]
 
@@ -388,11 +424,95 @@ class DesignWindow:
         variables["mode"].trace_add("write", configure_mode)
         configure_mode()
 
-        if extra_key and extra_key in variables:
-            ttk.Label(group, text=extra_caption).grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
-            extra_entry = ttk.Entry(group, textvariable=variables[extra_key], width=9)
-            extra_entry.grid(row=8, column=2, padx=2, sticky="ew", pady=(6, 0))
-            self._linked_slider(group, 9, variables[extra_key], extra_range[0], extra_range[1], column=0, columnspan=3)
+        items = list(extra_items) if extra_items is not None else []
+        if extra_key and extra_key in variables and not items:
+            items.append((extra_caption, extra_key, extra_range))
+
+        for idx, (cap, key, rng) in enumerate(items):
+            if key in variables:
+                er = start_row + 8 + idx * 2
+                ttk.Label(group, text=cap).grid(row=er, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+                extra_entry = ttk.Entry(group, textvariable=variables[key], width=9)
+                extra_entry.grid(row=er, column=2, padx=2, sticky="ew", pady=(6, 0))
+                self._linked_slider(group, er + 1, variables[key], rng[0], rng[1], column=0, columnspan=3)
+
+    def _source_names(self) -> list[str]:
+        return [
+            f"Source {i + 1}{' (Primary)' if i == 0 else ''}"
+            for i in range(len(self.sources_data))
+        ]
+
+    def _sync_current_source_to_data(self) -> None:
+        if 0 <= self.active_source_idx < len(self.sources_data):
+            for k in ("mode", "x", "y", "z", "az", "el", "distance", "size", "intensity"):
+                if k in self.source_vars:
+                    self.sources_data[self.active_source_idx][k] = self.source_vars[k].get()
+
+    def _load_source_from_data(self, index: int) -> None:
+        if 0 <= index < len(self.sources_data):
+            self._from_viewer = True
+            try:
+                data = self.sources_data[index]
+                for k in ("mode", "x", "y", "z", "az", "el", "distance", "size", "intensity"):
+                    if k in data and k in self.source_vars:
+                        self.source_vars[k].set(data[k])
+            finally:
+                self._from_viewer = False
+
+    def _source_selection_changed(self, _event=None) -> None:
+        self._sync_current_source_to_data()
+        idx = self.source_combo.current() if hasattr(self, "source_combo") and self.source_combo.current() >= 0 else 0
+        self.active_source_idx = idx
+        if self.viewer is not None and hasattr(self.viewer, "active_light_index"):
+            self.viewer.active_light_index = idx
+        self._load_source_from_data(idx)
+        self._update_source_buttons()
+        self._scene_changed()
+
+    def _add_source(self) -> None:
+        self._sync_current_source_to_data()
+        new_idx = len(self.sources_data)
+        if new_idx >= 8:
+            messagebox.showinfo("Limit reached", "Maximum 8 illumination sources supported.", parent=self.root)
+            return
+        az = (90.0 + new_idx * 90.0) % 360.0 - 180.0
+        el = 55.0
+        dist = 400.0
+        x, y, z = position_from_direction(az, el, dist)
+        new_src = {
+            "mode": "XYZ",
+            "x": f"{x:.4f}", "y": f"{y:.4f}", "z": f"{z:.4f}",
+            "az": f"{az:.4f}", "el": f"{el:.4f}", "distance": f"{dist:.4f}",
+            "size": "20.0", "intensity": "1.0",
+        }
+        self.sources_data.append(new_src)
+        self.source_combo.configure(values=self._source_names())
+        self.active_source_idx = new_idx
+        self.source_selector_var.set(self._source_names()[new_idx])
+        if self.viewer is not None and hasattr(self.viewer, "active_light_index"):
+            self.viewer.active_light_index = new_idx
+        self._load_source_from_data(new_idx)
+        self._update_source_buttons()
+        self._scene_changed()
+
+    def _remove_source(self) -> None:
+        if len(self.sources_data) <= 1:
+            return
+        self.sources_data.pop(self.active_source_idx)
+        self.active_source_idx = max(0, min(self.active_source_idx, len(self.sources_data) - 1))
+        self.source_combo.configure(values=self._source_names())
+        self.source_selector_var.set(self._source_names()[self.active_source_idx])
+        if self.viewer is not None and hasattr(self.viewer, "active_light_index"):
+            self.viewer.active_light_index = self.active_source_idx
+        self._load_source_from_data(self.active_source_idx)
+        self._update_source_buttons()
+        self._scene_changed()
+
+    def _update_source_buttons(self) -> None:
+        if hasattr(self, "remove_source_btn"):
+            self.remove_source_btn.configure(state="normal" if len(self.sources_data) > 1 else "disabled")
+        if hasattr(self, "add_source_btn"):
+            self.add_source_btn.configure(state="normal" if len(self.sources_data) < 8 else "disabled")
 
     def _browse(self) -> None:
         filename = filedialog.askopenfilename(
@@ -513,15 +633,33 @@ class DesignWindow:
     def _apply_viewer_scene(self, scene: SceneSettings) -> None:
         self._from_viewer = True
         try:
-            for variables, position in ((self.source_vars, scene.light_pos),
-                                        (self.observer_vars, scene.camera_pos)):
-                for key, value in zip(("x", "y", "z"), position):
-                    variables[key].set(f"{value:.4f}")
-                for key, value in zip(("az", "el", "distance"), direction_from_position(position)):
-                    variables[key].set(f"{value:.4f}")
+            for key, value in zip(("x", "y", "z"), scene.camera_pos):
+                self.observer_vars[key].set(f"{value:.4f}")
+            for key, value in zip(("az", "el", "distance"), direction_from_position(scene.camera_pos)):
+                self.observer_vars[key].set(f"{value:.4f}")
+
+            lights = scene.lights if scene.lights else (LightSource(pos=scene.light_pos, source_radius_factor=scene.source_size_mm),)
+            for i, light in enumerate(lights):
+                if i < len(self.sources_data):
+                    for key, value in zip(("x", "y", "z"), light.pos):
+                        self.sources_data[i][key] = f"{value:.4f}"
+                    for key, value in zip(("az", "el", "distance"), direction_from_position(light.pos)):
+                        self.sources_data[i][key] = f"{value:.4f}"
+                    self.sources_data[i]["size"] = f"{light.source_size_mm:.2f}"
+                    self.sources_data[i]["intensity"] = f"{light.intensity:.2f}"
+
+            if 0 <= self.active_source_idx < len(lights):
+                active_light = lights[self.active_source_idx]
+                for key, value in zip(("x", "y", "z"), active_light.pos):
+                    self.source_vars[key].set(f"{value:.4f}")
+                for key, value in zip(("az", "el", "distance"), direction_from_position(active_light.pos)):
+                    self.source_vars[key].set(f"{value:.4f}")
+                if "size" in self.source_vars:
+                    self.source_vars["size"].set(f"{active_light.source_size_mm:.2f}")
+                if "intensity" in self.source_vars:
+                    self.source_vars["intensity"].set(f"{active_light.intensity:.2f}")
+
             self.orientation_var.set(f"{scene.orientation_deg:.4f}")
-            if "size" in self.source_vars:
-                self.source_vars["size"].set(f"{scene.source_size_mm:.2f}")
             if "aperture" in self.observer_vars:
                 self.observer_vars["aperture"].set(f"{scene.aperture_mm:.2f}")
         finally:
@@ -554,9 +692,10 @@ class DesignWindow:
                     source_image = Image.fromarray(source_raw, mode="RGB")
             else:
                 source_raw, source_image = encode_gui_design_image(design, image_format)
-            return (design, source_raw, source_image, parameter_counts(design, "gratings"),
-                    parameter_counts(design, "angles"), parameter_map(design, "gratings"),
-                    parameter_map(design, "angles"), Path(path).name)
+            chan_name_p, periods = parameter_table_entries(design, "gratings", image_format, source_raw)
+            chan_name_a, angles = parameter_table_entries(design, "angles", image_format, source_raw)
+            return (design, source_raw, source_image, periods, angles, chan_name_p, chan_name_a,
+                    parameter_map(design, "gratings"), parameter_map(design, "angles"), Path(path).name)
 
         self._stop_viewer()
         self._cancel_preview_request()
@@ -571,19 +710,22 @@ class DesignWindow:
         self._submit(work, self._loaded, "Loading design and finding parameters...")
 
     def _loaded(self, result: object) -> None:
-        design, source_raw, source_image, periods, angles, period_image, angle_image, filename = result
+        (design, source_raw, source_image, periods, angles, chan_name_p, chan_name_a,
+         period_image, angle_image, filename) = result
         self.design = design
         self.original_design = design.copy()
         self.source_raw = source_raw.copy() if source_raw is not None else None
         self.original_source_raw = source_raw.copy() if source_raw is not None else None
         self.source_image = source_image
         self.preview_image = None
+        self.period_table.heading("channel", text=f"Channel ({chan_name_p})")
+        self.angle_table.heading("channel", text=f"Channel ({chan_name_a})")
         self._table_data["gratings"] = periods
         self._table_data["angles"] = angles
         for table, entries in ((self.period_table, periods), (self.angle_table, angles)):
             table.delete(*table.get_children())
-            for value, count in entries:
-                table.insert("", tk.END, values=(f"{value:g}", f"{count:,}"))
+            for value, chan_str, count in entries:
+                table.insert("", tk.END, values=(f"{value:g}", chan_str, f"{count:,}"))
         for k in ("gratings", "angles"):
             self._table_selected_vars[k].set("—")
             self._table_entry_vars[k].set("")
@@ -617,14 +759,28 @@ class DesignWindow:
 
     def _scene_settings(self, report_error: bool) -> SceneSettings | None:
         try:
+            self._sync_current_source_to_data()
             aperture = float(self.observer_vars["aperture"].get()) if "aperture" in self.observer_vars else 2.0
-            source_size = float(self.source_vars["size"].get()) if "size" in self.source_vars else 20.0
+            lights_list: list[LightSource] = []
+            for s_data in self.sources_data:
+                if s_data.get("mode") == "XYZ":
+                    pt = (float(s_data["x"]), float(s_data["y"]), float(s_data["z"]))
+                else:
+                    pt = position_from_direction(
+                        float(s_data["az"]), float(s_data["el"]), float(s_data["distance"])
+                    )
+                sz = float(s_data.get("size", 20.0))
+                inten = float(s_data.get("intensity", 1.0))
+                lights_list.append(LightSource(pos=pt, source_radius_factor=sz, intensity=inten))
+
+            primary = lights_list[0] if lights_list else LightSource()
             return SceneSettings(
-                light_pos=self._point(self.source_vars),
+                light_pos=primary.pos,
                 camera_pos=self._point(self.observer_vars),
                 orientation_deg=float(self.orientation_var.get()),
                 aperture_mm=aperture,
-                source_size_mm=source_size,
+                source_size_mm=primary.source_size_mm,
+                lights=tuple(lights_list),
             ).validated()
         except ValueError as error:
             if report_error:
@@ -641,6 +797,7 @@ class DesignWindow:
     def _scene_changed(self, *_args) -> None:
         if self._from_viewer:
             return
+        self._sync_current_source_to_data()
         self._cancel_preview_request()
         if self.design is not None and self.live_var.get() and self.renderer_var.get() == "OpenGL (fast)":
             settings = self._scene_settings(report_error=False)
@@ -656,11 +813,15 @@ class DesignWindow:
                     if cw > 50 and ch > 50:
                         pane_size = (cw, ch)
                 self.viewer = RealtimeViewer(self.design, settings, visible=False)
+                if hasattr(self.viewer, "active_light_index"):
+                    self.viewer.active_light_index = self.active_source_idx
                 if pane_size is not None and hasattr(self.viewer, "update_pane_size"):
                     self.viewer.update_pane_size(pane_size)
                 self.viewer.start()
                 self.status_var.set("Starting live OpenGL rendering...")
             else:
+                if hasattr(self.viewer, "active_light_index"):
+                    self.viewer.active_light_index = self.active_source_idx
                 self.viewer.update_scene(settings)
         else:
             self._stop_viewer()
@@ -958,15 +1119,25 @@ class DesignWindow:
         if self.design is None:
             return
 
-        periods = parameter_counts(self.design, "gratings")
-        angles = parameter_counts(self.design, "angles")
+        self.source_raw, self.source_image = encode_gui_design_image(
+            self.design, self.format_var.get(), self.original_source_raw,
+        )
+
+        chan_name_p, periods = parameter_table_entries(
+            self.design, "gratings", self.format_var.get(), self.source_raw,
+        )
+        chan_name_a, angles = parameter_table_entries(
+            self.design, "angles", self.format_var.get(), self.source_raw,
+        )
+        self.period_table.heading("channel", text=f"Channel ({chan_name_p})")
+        self.angle_table.heading("channel", text=f"Channel ({chan_name_a})")
         self._table_data["gratings"] = periods
         self._table_data["angles"] = angles
 
         for table, entries in ((self.period_table, periods), (self.angle_table, angles)):
             table.delete(*table.get_children())
-            for val, cnt in entries:
-                table.insert("", tk.END, values=(f"{val:g}", f"{cnt:,}"))
+            for val, chan_str, cnt in entries:
+                table.insert("", tk.END, values=(f"{val:g}", chan_str, f"{cnt:,}"))
 
         for k in ("gratings", "angles"):
             self._table_selected_vars[k].set("—")
@@ -975,10 +1146,6 @@ class DesignWindow:
         self.summary_var.set(
             f"{self.design.width} × {self.design.height} cells  •  {self.design.active_count:,} active  •  "
             f"{len(periods)} periods  •  {len(angles)} angles  •  pitch {self.design.pitch_nm / 1000:g} µm"
-        )
-
-        self.source_raw, self.source_image = encode_gui_design_image(
-            self.design, self.format_var.get(), self.original_source_raw,
         )
         self._set_panel(
             "source", self.source_image,
@@ -1028,15 +1195,21 @@ class DesignWindow:
                 self.design, self.format_var.get(),
             )
 
-        periods = parameter_counts(self.design, "gratings")
-        angles = parameter_counts(self.design, "angles")
+        chan_name_p, periods = parameter_table_entries(
+            self.design, "gratings", self.format_var.get(), self.source_raw,
+        )
+        chan_name_a, angles = parameter_table_entries(
+            self.design, "angles", self.format_var.get(), self.source_raw,
+        )
+        self.period_table.heading("channel", text=f"Channel ({chan_name_p})")
+        self.angle_table.heading("channel", text=f"Channel ({chan_name_a})")
         self._table_data["gratings"] = periods
         self._table_data["angles"] = angles
 
         for table, entries in ((self.period_table, periods), (self.angle_table, angles)):
             table.delete(*table.get_children())
-            for val, cnt in entries:
-                table.insert("", tk.END, values=(f"{val:g}", f"{cnt:,}"))
+            for val, chan_str, cnt in entries:
+                table.insert("", tk.END, values=(f"{val:g}", chan_str, f"{cnt:,}"))
 
         for k in ("gratings", "angles"):
             self._table_selected_vars[k].set("—")

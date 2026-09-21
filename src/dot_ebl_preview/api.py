@@ -17,7 +17,14 @@ from dot_ebl_preview.io.legacy_hls import import_legacy_hls
 from dot_ebl_preview.io.legacy_unity import import_legacy_unity_hsv
 from dot_ebl_preview.jobs.bundle import stage_and_export_bundle
 from dot_ebl_preview.layout.plan import FabricationPlan, create_fabrication_plan
+from dot_ebl_preview.optics.engine import (
+    LightSource,
+    OpticalSimParams,
+    simulate_cell_optical_color,
+    render_optical_preview,
+)
 from dot_ebl_preview.preview.renderer import render_preview_to_file
+
 
 
 def build_design(

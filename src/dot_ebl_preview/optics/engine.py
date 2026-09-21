@@ -50,6 +50,41 @@ def _point_inside_triangle(pt: Tuple[float, float], a: Tuple[float, float], b: T
     return True
 
 
+@dataclass(frozen=True)
+class LightSource:
+    """An individual illumination source in the optical scene.
+
+    Attributes:
+        pos: XYZ coordinates (x, y, z) in mm.
+        source_radius_factor: Physical radius of light source in mm (default: 20.0).
+        intensity: Relative illumination intensity factor (default: 1.0).
+    """
+    pos: Tuple[float, float, float] = (
+        0.0,
+        float(400.0 * math.sin(math.radians(35.0))),
+        float(400.0 * math.cos(math.radians(35.0))),
+    )
+    source_radius_factor: float = 20.0
+    intensity: float = 1.0
+
+    @property
+    def source_size_mm(self) -> float:
+        return self.source_radius_factor
+
+    def validated(self) -> "LightSource":
+        if len(self.pos) != 3:
+            raise ValueError("Light position must be a 3-tuple.")
+        if not all(math.isfinite(v) for v in (*self.pos, self.source_radius_factor, self.intensity)):
+            raise ValueError("Light source coordinates, size, and intensity must be finite numbers.")
+        if self.pos == (0.0, 0.0, 0.0):
+            raise ValueError("The light source must be away from the design center.")
+        if self.source_radius_factor < 0.0:
+            raise ValueError("Light source physical size must be non-negative.")
+        if self.intensity < 0.0:
+            raise ValueError("Light source intensity must be non-negative.")
+        return self
+
+
 @dataclass
 class OpticalSimParams:
     """Parameters for the spectral optical simulation engine.
@@ -84,6 +119,32 @@ class OpticalSimParams:
     source_radius_factor: float = 20.0  # light source physical radius in mm (light bulb globe)
     apply_gamut_mapping: bool = True
     unity_mode: bool = False
+    lights: Optional[Tuple[LightSource, ...]] = None
+
+    def __post_init__(self) -> None:
+        if self.lights is not None and len(self.lights) > 0:
+            self.light_pos = self.lights[0].pos
+            self.source_radius_factor = self.lights[0].source_radius_factor
+
+    def get_lights(self) -> Tuple[LightSource, ...]:
+        if self.lights is not None:
+            if len(self.lights) == 1 and (
+                self.lights[0].pos != self.light_pos or self.lights[0].source_radius_factor != self.source_radius_factor
+            ):
+                return (LightSource(pos=self.light_pos, source_radius_factor=self.source_radius_factor, intensity=self.lights[0].intensity),)
+            return self.lights
+        return (LightSource(pos=self.light_pos, source_radius_factor=self.source_radius_factor, intensity=1.0),)
+
+    def validated(self) -> "OpticalSimParams":
+        lights = self.get_lights()
+        if not lights or len(lights) == 0:
+            raise ValueError("OpticalSimParams requires at least one light source.")
+        if len(lights) > 8:
+            raise ValueError(f"Maximum 8 light sources supported, got {len(lights)}.")
+        for light in lights:
+            light.validated()
+        return self
+
 
     @property
     def aperture_mm(self) -> float:
@@ -106,13 +167,14 @@ def simulate_cell_optical_color(
     Simulates diffraction across 77 discrete spectral wavelength bands (380 nm to 760 nm
     in 5 nm increments) under standard illuminant D65, factoring in CIE 1931 color matching
     functions, nickel spectral reflectance, and sRGB gamut boundary mapping.
+    Supports multiple illumination sources with additive superposition.
 
     Args:
         period_nm: Grating period in integer nanometres.
         angle_deg: CCW rotation of grating lines from +X around +Z. At zero
             degrees the lines run along X and the grating vector points along +Y.
         world_pos: 3D coordinates (x, y, z) of the cell center in the scene.
-        params: Optical simulation parameters (camera, light, aperture, orders).
+        params: Optical simulation parameters (camera, lights, aperture, orders).
         holopixel_diameter_nm: Diameter of the circular grating envelope.
 
     Returns:
@@ -123,26 +185,6 @@ def simulate_cell_optical_color(
 
     if params is None:
         params = OpticalSimParams()
-
-    sxyz_table = premultiplied_XYZ()  # (77, 3)
-    xyz2rgb_mat = XYZ2RGB()           # (3, 3)
-
-    # Unrotated stripes run along +X. A CCW SREF rotation maps their +Y
-    # reciprocal vector to (-sin(angle), cos(angle)).
-    rad = math.radians(angle_deg)
-    grating_vec = (-math.sin(rad), math.cos(rad))
-
-    # Light vector
-    lx = params.light_pos[0] - world_pos[0]
-    ly = params.light_pos[1] - world_pos[1]
-    lz = params.light_pos[2] - world_pos[2]
-    l_len = math.sqrt(lx * lx + ly * ly + lz * lz)
-    if l_len < 1e-9:
-        return 0.0, 0.0, 0.0
-    unit_light = (lx / l_len, ly / l_len, lz / l_len)
-    cos_inc = max(0.0, unit_light[2])
-    if cos_inc == 0.0:
-        return 0.0, 0.0, 0.0
 
     # Camera vector
     cx = params.camera_pos[0] - world_pos[0]
@@ -155,10 +197,19 @@ def simulate_cell_optical_color(
     if unit_cam[2] <= 0.0:
         return 0.0, 0.0, 0.0
 
-    # Both vectors are unit length in the substrate's local XYZ frame.
-    detector_radius = max(0.0, params.aperture_radius_factor) / c_len
-    source_radius = max(0.0, params.source_radius_factor) / l_len
+    lights = params.get_lights()
+    if not lights:
+        return 0.0, 0.0, 0.0
 
+    sxyz_table = premultiplied_XYZ()  # (77, 3)
+    xyz2rgb_mat = XYZ2RGB()           # (3, 3)
+
+    # Unrotated stripes run along +X. A CCW SREF rotation maps their +Y
+    # reciprocal vector to (-sin(angle), cos(angle)).
+    rad = math.radians(angle_deg)
+    grating_vec = (-math.sin(rad), math.cos(rad))
+
+    detector_radius = max(0.0, params.aperture_radius_factor) / c_len
     period_m = period_nm * 1e-9
     holopixel_diameter_m = holopixel_diameter_nm * 1e-9
 
@@ -167,53 +218,65 @@ def simulate_cell_optical_color(
         orders_to_check = [-2, -1, 1, 2]
 
     xyz_acc = np.zeros(3, dtype=np.float64)
-    light_xyz_acc = np.zeros(3, dtype=np.float64)
 
-    # 77 wavelength samples from 380 nm to 760 nm in 5 nm steps
-    for counter in range(77):
-        wl = 380.0 + counter * 5.0
-        wl_m = wl * 1e-9
-        s_xyz = sxyz_table[counter].astype(np.float64)
+    for light in lights:
+        intensity = getattr(light, "intensity", 1.0)
+        if intensity <= 0.0:
+            continue
 
-        for m in orders_to_check:
-            if m == 0:
-                continue
-            coeff = params.order_2_weight if abs(m) == 2 else 1.0
+        lx = light.pos[0] - world_pos[0]
+        ly = light.pos[1] - world_pos[1]
+        lz = light.pos[2] - world_pos[2]
+        l_len = math.sqrt(lx * lx + ly * ly + lz * lz)
+        if l_len < 1e-9:
+            continue
+        unit_light = (lx / l_len, ly / l_len, lz / l_len)
+        cos_inc = max(0.0, unit_light[2])
+        if cos_inc <= 0.0:
+            continue
 
-            alpha_x = -unit_light[0] + m * (wl_m / period_m) * grating_vec[0]
-            alpha_y = -unit_light[1] + m * (wl_m / period_m) * grating_vec[1]
-            alpha12 = alpha_x * alpha_x + alpha_y * alpha_y
+        source_radius = max(0.0, light.source_radius_factor) / l_len
 
-            if alpha12 <= 1.0:
-                alpha_z = math.sqrt(1.0 - alpha12)
-                cos_dev = max(-1.0, min(1.0,
-                    alpha_x * unit_cam[0] + alpha_y * unit_cam[1] + alpha_z * unit_cam[2]
-                ))
-                theta_dev = math.acos(cos_dev)
+        # 77 wavelength samples from 380 nm to 760 nm in 5 nm steps
+        for counter in range(77):
+            wl = 380.0 + counter * 5.0
+            wl_m = wl * 1e-9
+            s_xyz = sxyz_table[counter].astype(np.float64)
 
-                # Gaussian approximation to the finite circular cell's far-field
-                # profile, convolved with the finite light source extent and a
-                # Gaussian detector disk (RMS radius/2).
-                # The collected fraction approaches 1/D^2 in the far field;
-                # multiplying by another distance factor would count it twice.
-                sigma_diff = 0.5 * wl_m / holopixel_diameter_m
-                sigma_beam_sq = sigma_diff * sigma_diff + 0.25 * source_radius * source_radius
-                sigma_sq = sigma_beam_sq + 0.25 * detector_radius * detector_radius
-                if sigma_sq > 0.0:
-                    ratio_sq = (detector_radius * detector_radius) / max(1e-12, sigma_beam_sq)
-                    aligned_fraction = -math.expm1(-0.5 * ratio_sq)
-                    angular_weight = aligned_fraction * math.exp(
-                        -0.5 * theta_dev * theta_dev / sigma_sq
-                    )
-                    xyz_acc += s_xyz * coeff * cos_inc * alpha_z * angular_weight
+            for m in orders_to_check:
+                if m == 0:
+                    continue
+                coeff = params.order_2_weight if abs(m) == 2 else 1.0
 
-        light_xyz_acc += s_xyz
+                alpha_x = -unit_light[0] + m * (wl_m / period_m) * grating_vec[0]
+                alpha_y = -unit_light[1] + m * (wl_m / period_m) * grating_vec[1]
+                alpha12 = alpha_x * alpha_x + alpha_y * alpha_y
 
-    # Illuminant normalization
+                if alpha12 <= 1.0:
+                    alpha_z = math.sqrt(1.0 - alpha12)
+                    cos_dev = max(-1.0, min(1.0,
+                        alpha_x * unit_cam[0] + alpha_y * unit_cam[1] + alpha_z * unit_cam[2]
+                    ))
+                    theta_dev = math.acos(cos_dev)
+
+                    sigma_diff = 0.5 * wl_m / holopixel_diameter_m
+                    sigma_beam_sq = sigma_diff * sigma_diff + 0.25 * source_radius * source_radius
+                    sigma_sq = sigma_beam_sq + 0.25 * detector_radius * detector_radius
+                    if sigma_sq > 0.0:
+                        ratio_sq = (detector_radius * detector_radius) / max(1e-12, sigma_beam_sq)
+                        aligned_fraction = -math.expm1(-0.5 * ratio_sq)
+                        angular_weight = aligned_fraction * math.exp(
+                            -0.5 * theta_dev * theta_dev / sigma_sq
+                        )
+                        xyz_acc += s_xyz * (intensity * coeff * cos_inc * alpha_z * angular_weight)
+
+    # Standard D65 illuminant normalization
+    light_xyz_acc = sxyz_table.sum(axis=0, dtype=np.float64)
     if light_xyz_acc[1] > 1e-9:
         xyz_acc /= light_xyz_acc[1]
     else:
         return 0.0, 0.0, 0.0
+
 
     xyz_sum = xyz_acc[0] + xyz_acc[1] + xyz_acc[2]
     if xyz_sum < 1e-9:
