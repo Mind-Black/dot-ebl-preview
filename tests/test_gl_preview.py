@@ -17,6 +17,28 @@ from dot_ebl_preview.preview.gl_renderer import ReusableGLRenderer
 from dot_ebl_preview.preview.realtime import EventQueue, FramePayload, RealtimeViewer
 
 
+@pytest.fixture(scope="module")
+def opengl_context():
+    """Skip GPU integration tests only when the required driver is unavailable."""
+    pytest.importorskip("glfw")
+    pytest.importorskip("OpenGL")
+    renderer = None
+    try:
+        renderer = ReusableGLRenderer()
+        design = Design(shape=(1, 1), pitch_nm=20000,
+                        period_nm=np.array([[1000]], dtype=np.uint32),
+                        angle_deg=np.zeros((1, 1)), active=np.ones((1, 1), dtype=bool))
+        renderer.render(design, (0, 20, 30), (0, 0, 66), 0.0)
+    except RuntimeError as error:
+        if "unavailable" in str(error).lower():
+            pytest.skip(str(error))
+        raise
+    finally:
+        if renderer is not None:
+            renderer.close()
+
+
+@pytest.mark.usefixtures("opengl_context")
 def test_opengl_preview_matches_cpu_for_positions_orientation_and_fallback():
     pytest.importorskip("glfw")
     pytest.importorskip("OpenGL")
@@ -49,7 +71,10 @@ def test_opengl_preview_matches_cpu_for_positions_orientation_and_fallback():
     assert gpu[0, 0].tolist() == [51, 51, 51]
 
 
+@pytest.mark.usefixtures("opengl_context")
 def test_gui_preview_button_runs_opengl_in_worker(monkeypatch):
+    pytest.importorskip("glfw")
+    pytest.importorskip("OpenGL")
     try:
         root = tk.Tk()
     except tk.TclError as error:
@@ -241,6 +266,7 @@ def test_gui_displays_source_periods_angles_and_live_frame_together(monkeypatch,
             root.destroy()
 
 
+@pytest.mark.usefixtures("opengl_context")
 def test_realtime_viewer_reuses_context_and_captures_current_frame():
     pytest.importorskip("glfw")
     pytest.importorskip("OpenGL")
@@ -281,6 +307,7 @@ def test_realtime_viewer_reuses_context_and_captures_current_frame():
     assert not viewer.is_alive
 
 
+@pytest.mark.usefixtures("opengl_context")
 def test_realtime_viewer_publishes_latest_fast_frame_after_rapid_change():
     pytest.importorskip("glfw")
     pytest.importorskip("OpenGL")
@@ -387,6 +414,7 @@ def test_monotonic_frame_acceptance_and_quality_upgrade(monkeypatch):
             root.destroy()
 
 
+@pytest.mark.usefixtures("opengl_context")
 def test_reusable_gl_renderer_caches_and_reuses_textures():
     pytest.importorskip("glfw")
     pytest.importorskip("OpenGL")
@@ -423,6 +451,7 @@ def test_reusable_gl_renderer_caches_and_reuses_textures():
         renderer.close()
 
 
+@pytest.mark.usefixtures("opengl_context")
 def test_realtime_viewer_settled_pane_size_and_capture_resolution():
     pytest.importorskip("glfw")
     pytest.importorskip("OpenGL")
@@ -469,6 +498,7 @@ def test_realtime_viewer_settled_pane_size_and_capture_resolution():
         viewer.close()
 
 
+@pytest.mark.usefixtures("opengl_context")
 def test_continuous_input_acceptance_without_frame_drops():
     pytest.importorskip("glfw")
     pytest.importorskip("OpenGL")
@@ -519,5 +549,3 @@ def test_continuous_input_acceptance_without_frame_drops():
             assert a <= b
     finally:
         viewer.close()
-
-

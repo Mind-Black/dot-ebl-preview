@@ -1,0 +1,74 @@
+{
+  "firstFocus": "Preset Gallery",
+  "keyboard": [
+    {
+      "tag": "BUTTON",
+      "text": "Browse Local Files"
+    },
+    {
+      "tag": "BODY",
+      "text": "\n    \n      \n        \n          \n          \n          \n        \n        Dot EBL Preview\n        Web v1.0\n      \n      \n        Preset Gallery\n      \n    \n\n    \n      \n        Dot-Matrix EBL Preview Platform\n        Interactive Diffraction Optics & Physical Parameter Inspector\n        \n          Inspect micro-grating periods, orientations, and qualitative diffraction optical behavior directly in the browser. \n          Upload design images, inspect parameter distributions, or explore test benchmarks below.\n        \n      \n\n      \n        \n          \n            \n            \n            \n          \n          Drop Design Image or .npz Archive\n          Supports RGB8 / RGB16 PNGs, Python design.npz, BMP, JPEG, WebP\n          Browse Local Files\n        \n\n        \n          \n            Or Explore a Physical Benchmark\n            Instant procedural designs\n          \n          \n        Concentric Test Pattern\n        Circular rings with tangential orientations and asymmetric quadrant marker.\n        Load Preset →\n      \n        Orthogonal Cross\n        Horizontal and vertical grating domains (0° / 90°) with 45° intersection.\n        Load Preset →\n      \n        Spectral Fan Sweep\n        Continuous parameter gradient across orientation (-90° to +90°) and period (900–1200 nm).\n        Load Preset →\n      \n        EBL Glyph Emblem\n        Distinct alphanumeric tiles with known orientation and period combinations.\n        Load Preset →\n      \n        \n      \n    3D PerspectiveFlat 2D ReferenceSide-by-SideFit ViewBalanced (39 bands)Hover over surface to inspect cell parameters\n          Left-drag Pan View\n          Wheel Zoom\n        Period MapAngle MapSource ImageAnalyticsGrating Period MapDownload PNGRotation Angle MapDownload PNGSource Image / Input DataDownload PNG\n        \n          No design loaded. Load an image or preset to inspect parameter analytics.\n        \n      Design & Ingestion\n\n      \n\n        \n\n        \n\n        \n\n      \n\n      Upload Design (.png, .npz, web images)\n\n    Parameter Interpretation ProfileRGBA continuousRGB8 indexedRGB16 fixedHoltida legacy HLSLearning Shaders HLSUnity HSVNPZ designRGBA InterpretationMin Period (nm)Min Period (nm)400Max Period (nm)Max Period (nm)1600Min Angle (°)Min Angle (°)-90Max Angle (°)Max Angle (°)90Smooth GradientsRound to Integer AnglesRound Period to 50 nmFilter diameter3.0Spatial sigma100.0Period sigma50.0Angle sigma10.0Holopixel Lattice Pitch20 µmGrating Orientation0.0°Optical Diffraction QualityHighBalancedFastLoad Sample Physical DesignConcentric Test PatternOrthogonal CrossSpectral Fan SweepEBL Glyph EmblemIllumination & ObserverPrimary Light SourceOverheadStandard Oblique45° ObliqueGrazingLight Azimuth90.0°Light Elevation55.0°Light Distance400 mmSource Radius20.0 mmLight Intensity1.00Secondary Fill LightFill Light Azimuth270.0°Fill Light Elevation55.0°Fill Light Distance400 mmFill Source Radius20.0 mmFill Intensity0.30Physical ObserverTop-Down View45° Oblique ViewReset (0, 0, 300)Camera Azimuth270.0°Camera Elevation90.0°Camera Distance300 mmObserver Aperture Radius2.00 mmExports & Data ArtifactsOptical Preview PNG (1:1)Perspective Capture PNGParameter Distribution (CSV)Parameter Metadata (JSON)EBL Lithography FabricationGDS layerDose factorTop structure nameCenter full grid at (0, 0)Export EBL Layout (.gds)\n\n  \n\n"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Preset Gallery"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Browse Local Files"
+    },
+    {
+      "tag": "BODY",
+      "text": "\n    \n      \n        \n          \n          \n          \n        \n        Dot EBL Preview\n        Web v1.0\n      \n      \n        Preset Gallery\n      \n    \n\n    \n      \n        Dot-Matrix EBL Preview Platform\n        Interactive Diffraction Optics & Physical Parameter Inspector\n        \n          Inspect micro-grating periods, orientations, and qualitative diffraction optical behavior directly in the browser. \n          Upload design images, inspect parameter distributions, or explore test benchmarks below.\n        \n      \n\n      \n        \n          \n            \n            \n            \n          \n          Drop Design Image or .npz Archive\n          Supports RGB8 / RGB16 PNGs, Python design.npz, BMP, JPEG, WebP\n          Browse Local Files\n        \n\n        \n          \n            Or Explore a Physical Benchmark\n            Instant procedural designs\n          \n          \n        Concentric Test Pattern\n        Circular rings with tangential orientations and asymmetric quadrant marker.\n        Load Preset →\n      \n        Orthogonal Cross\n        Horizontal and vertical grating domains (0° / 90°) with 45° intersection.\n        Load Preset →\n      \n        Spectral Fan Sweep\n        Continuous parameter gradient across orientation (-90° to +90°) and period (900–1200 nm).\n        Load Preset →\n      \n        EBL Glyph Emblem\n        Distinct alphanumeric tiles with known orientation and period combinations.\n        Load Preset →\n      \n        \n      \n    3D PerspectiveFlat 2D ReferenceSide-by-SideFit ViewBalanced (39 bands)Hover over surface to inspect cell parameters\n          Left-drag Pan View\n          Wheel Zoom\n        Period MapAngle MapSource ImageAnalyticsGrating Period MapDownload PNGRotation Angle MapDownload PNGSource Image / Input DataDownload PNG\n        \n          No design loaded. Load an image or preset to inspect parameter analytics.\n        \n      Design & Ingestion\n\n      \n\n        \n\n        \n\n        \n\n      \n\n      Upload Design (.png, .npz, web images)\n\n    Parameter Interpretation ProfileRGBA continuousRGB8 indexedRGB16 fixedHoltida legacy HLSLearning Shaders HLSUnity HSVNPZ designRGBA InterpretationMin Period (nm)Min Period (nm)400Max Period (nm)Max Period (nm)1600Min Angle (°)Min Angle (°)-90Max Angle (°)Max Angle (°)90Smooth GradientsRound to Integer AnglesRound Period to 50 nmFilter diameter3.0Spatial sigma100.0Period sigma50.0Angle sigma10.0Holopixel Lattice Pitch20 µmGrating Orientation0.0°Optical Diffraction QualityHighBalancedFastLoad Sample Physical DesignConcentric Test PatternOrthogonal CrossSpectral Fan SweepEBL Glyph EmblemIllumination & ObserverPrimary Light SourceOverheadStandard Oblique45° ObliqueGrazingLight Azimuth90.0°Light Elevation55.0°Light Distance400 mmSource Radius20.0 mmLight Intensity1.00Secondary Fill LightFill Light Azimuth270.0°Fill Light Elevation55.0°Fill Light Distance400 mmFill Source Radius20.0 mmFill Intensity0.30Physical ObserverTop-Down View45° Oblique ViewReset (0, 0, 300)Camera Azimuth270.0°Camera Elevation90.0°Camera Distance300 mmObserver Aperture Radius2.00 mmExports & Data ArtifactsOptical Preview PNG (1:1)Perspective Capture PNGParameter Distribution (CSV)Parameter Metadata (JSON)EBL Lithography FabricationGDS layerDose factorTop structure nameCenter full grid at (0, 0)Export EBL Layout (.gds)\n\n  \n\n"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Preset Gallery"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Browse Local Files"
+    },
+    {
+      "tag": "BODY",
+      "text": "\n    \n      \n        \n          \n          \n          \n        \n        Dot EBL Preview\n        Web v1.0\n      \n      \n        Preset Gallery\n      \n    \n\n    \n      \n        Dot-Matrix EBL Preview Platform\n        Interactive Diffraction Optics & Physical Parameter Inspector\n        \n          Inspect micro-grating periods, orientations, and qualitative diffraction optical behavior directly in the browser. \n          Upload design images, inspect parameter distributions, or explore test benchmarks below.\n        \n      \n\n      \n        \n          \n            \n            \n            \n          \n          Drop Design Image or .npz Archive\n          Supports RGB8 / RGB16 PNGs, Python design.npz, BMP, JPEG, WebP\n          Browse Local Files\n        \n\n        \n          \n            Or Explore a Physical Benchmark\n            Instant procedural designs\n          \n          \n        Concentric Test Pattern\n        Circular rings with tangential orientations and asymmetric quadrant marker.\n        Load Preset →\n      \n        Orthogonal Cross\n        Horizontal and vertical grating domains (0° / 90°) with 45° intersection.\n        Load Preset →\n      \n        Spectral Fan Sweep\n        Continuous parameter gradient across orientation (-90° to +90°) and period (900–1200 nm).\n        Load Preset →\n      \n        EBL Glyph Emblem\n        Distinct alphanumeric tiles with known orientation and period combinations.\n        Load Preset →\n      \n        \n      \n    3D PerspectiveFlat 2D ReferenceSide-by-SideFit ViewBalanced (39 bands)Hover over surface to inspect cell parameters\n          Left-drag Pan View\n          Wheel Zoom\n        Period MapAngle MapSource ImageAnalyticsGrating Period MapDownload PNGRotation Angle MapDownload PNGSource Image / Input DataDownload PNG\n        \n          No design loaded. Load an image or preset to inspect parameter analytics.\n        \n      Design & Ingestion\n\n      \n\n        \n\n        \n\n        \n\n      \n\n      Upload Design (.png, .npz, web images)\n\n    Parameter Interpretation ProfileRGBA continuousRGB8 indexedRGB16 fixedHoltida legacy HLSLearning Shaders HLSUnity HSVNPZ designRGBA InterpretationMin Period (nm)Min Period (nm)400Max Period (nm)Max Period (nm)1600Min Angle (°)Min Angle (°)-90Max Angle (°)Max Angle (°)90Smooth GradientsRound to Integer AnglesRound Period to 50 nmFilter diameter3.0Spatial sigma100.0Period sigma50.0Angle sigma10.0Holopixel Lattice Pitch20 µmGrating Orientation0.0°Optical Diffraction QualityHighBalancedFastLoad Sample Physical DesignConcentric Test PatternOrthogonal CrossSpectral Fan SweepEBL Glyph EmblemIllumination & ObserverPrimary Light SourceOverheadStandard Oblique45° ObliqueGrazingLight Azimuth90.0°Light Elevation55.0°Light Distance400 mmSource Radius20.0 mmLight Intensity1.00Secondary Fill LightFill Light Azimuth270.0°Fill Light Elevation55.0°Fill Light Distance400 mmFill Source Radius20.0 mmFill Intensity0.30Physical ObserverTop-Down View45° Oblique ViewReset (0, 0, 300)Camera Azimuth270.0°Camera Elevation90.0°Camera Distance300 mmObserver Aperture Radius2.00 mmExports & Data ArtifactsOptical Preview PNG (1:1)Perspective Capture PNGParameter Distribution (CSV)Parameter Metadata (JSON)EBL Lithography FabricationGDS layerDose factorTop structure nameCenter full grid at (0, 0)Export EBL Layout (.gds)\n\n  \n\n"
+    }
+  ],
+  "webgl": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "profiles": [
+    {
+      "f": "hls_test.png",
+      "profile": "Holtida legacy HLS",
+      "error": ""
+    },
+    {
+      "f": "unity_test.png",
+      "profile": "Unity HSV",
+      "error": ""
+    },
+    {
+      "f": "rgb8_test.png",
+      "profile": "RGB8 indexed",
+      "error": ""
+    },
+    {
+      "f": "rgb16_test.png",
+      "profile": "RGB16 fixed",
+      "error": ""
+    }
+  ],
+  "orientationAfterReplace": "30.0",
+  "review": "EBL fabrication — reviewed snapshot\nPitch: 20000 nm\nApplied orientation: 30�\nGrid cells: 16\nActive cells: 16\nUnique periods: 14\nStored paths: 609\nPlaced exposures: 694\nSkipped stored / placed: 0 / 0\nGrid extents: 0.08 × 0.08 mm\nLayer: 1; dose: 1\nOrigin offset (nm): 0, 0\nSoftware validated; hardware qualification separate.\nGenerate GDSGenerate ZIPClose / Cancel",
+  "focusAfterClose": "Export EBL Layout (.gds)",
+  "keyboardProbe": "Cell (64, 64): x=0.010 mm, y=-0.010 mm | Period: 900 nm | Stored: -45.00° | Effective: -15.00°",
+  "large": {
+    "elapsedMs": 3039,
+    "error": ""
+  },
+  "rapidFinal": "35.0",
+  "failureErrors": [
+    "Error: Error creating WebGL context."
+  ],
+  "failureBody": "Dot EBL Preview\nWeb v1.0\nPreset Gallery",
+  "firefoxDownload": "design_metadata_128x128.json"
+}

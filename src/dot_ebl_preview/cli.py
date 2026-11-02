@@ -48,9 +48,16 @@ def main(args: Optional[list[str]] = None) -> int:
 
     # inspect
     p_inspect = subparsers.add_parser("inspect", help="Inspect a design (.npz) or image file")
-    p_inspect.add_argument("input", help="Path to .npz or RGB image file")
-    p_inspect.add_argument("--profile", default="rgb8-indexed-v1", choices=["rgb8-indexed-v1", "rgb16-fixed-v1"])
+    p_inspect.add_argument("input", help="Path to .npz or RGB/RGBA image file")
+    p_inspect.add_argument("--profile", default="rgb8-indexed-v1", choices=["rgb8-indexed-v1", "rgb16-fixed-v1", "rgba-continuous-v1"])
     p_inspect.add_argument("--pitch-um", type=float, default=20.0, help="Pixel pitch in µm")
+    p_inspect.add_argument("--min-period-nm", type=float, default=400.0, help="Min period in nm (RGBA continuous)")
+    p_inspect.add_argument("--max-period-nm", type=float, default=1600.0, help="Max period in nm (RGBA continuous)")
+    p_inspect.add_argument("--min-angle-deg", type=float, default=-90.0, help="Min angle in deg (RGBA continuous)")
+    p_inspect.add_argument("--max-angle-deg", type=float, default=90.0, help="Max angle in deg (RGBA continuous)")
+    p_inspect.add_argument("--filter", action=argparse.BooleanOptionalAction, default=True, help="Smooth gradients via masked bilateral filter (RGBA continuous)")
+    p_inspect.add_argument("--round-angles", action=argparse.BooleanOptionalAction, default=False, help="Round active angles to integer degrees (RGBA continuous)")
+    p_inspect.add_argument("--round-period-50nm", action=argparse.BooleanOptionalAction, default=False, help="Round active grating periods to 50 nm increments (RGBA continuous)")
 
     # import-legacy
     p_import = subparsers.add_parser("import-legacy", help="Import legacy image and save as design.npz")
@@ -67,8 +74,15 @@ def main(args: Optional[list[str]] = None) -> int:
     p_export.add_argument("input", help="Path to design (.npz) or parameter image")
     p_export.add_argument("--name", default="HOLOGRAM", help="Layout name")
     p_export.add_argument("--output-dir", "-o", default="_OUTPUT", help="Output directory")
-    p_export.add_argument("--profile", default="rgb8-indexed-v1", choices=["rgb8-indexed-v1", "rgb16-fixed-v1"])
+    p_export.add_argument("--profile", default="rgb8-indexed-v1", choices=["rgb8-indexed-v1", "rgb16-fixed-v1", "rgba-continuous-v1"])
     p_export.add_argument("--pitch-um", type=float, default=20.0)
+    p_export.add_argument("--min-period-nm", type=float, default=400.0, help="Min period in nm (RGBA continuous)")
+    p_export.add_argument("--max-period-nm", type=float, default=1600.0, help="Max period in nm (RGBA continuous)")
+    p_export.add_argument("--min-angle-deg", type=float, default=-90.0, help="Min angle in deg (RGBA continuous)")
+    p_export.add_argument("--max-angle-deg", type=float, default=90.0, help="Max angle in deg (RGBA continuous)")
+    p_export.add_argument("--filter", action=argparse.BooleanOptionalAction, default=True, help="Smooth gradients via masked bilateral filter (RGBA continuous)")
+    p_export.add_argument("--round-angles", action=argparse.BooleanOptionalAction, default=False, help="Round active angles to integer degrees (RGBA continuous)")
+    p_export.add_argument("--round-period-50nm", action=argparse.BooleanOptionalAction, default=False, help="Round active grating periods to 50 nm increments (RGBA continuous)")
     p_export.add_argument(
         "--angles",
         nargs="*",
@@ -88,8 +102,15 @@ def main(args: Optional[list[str]] = None) -> int:
     p_preview.add_argument("input", help="Path to design (.npz) or parameter image")
     p_preview.add_argument("--output", "-o", required=True, help="Output PNG image path")
     p_preview.add_argument("--preset", default="corrected", choices=["corrected", "glsl-legacy", "unity-hsv"])
-    p_preview.add_argument("--profile", default="rgb8-indexed-v1", choices=["rgb8-indexed-v1", "rgb16-fixed-v1"])
+    p_preview.add_argument("--profile", default="rgb8-indexed-v1", choices=["rgb8-indexed-v1", "rgb16-fixed-v1", "rgba-continuous-v1"])
     p_preview.add_argument("--pitch-um", type=float, default=20.0)
+    p_preview.add_argument("--min-period-nm", type=float, default=400.0, help="Min period in nm (RGBA continuous)")
+    p_preview.add_argument("--max-period-nm", type=float, default=1600.0, help="Max period in nm (RGBA continuous)")
+    p_preview.add_argument("--min-angle-deg", type=float, default=-90.0, help="Min angle in deg (RGBA continuous)")
+    p_preview.add_argument("--max-angle-deg", type=float, default=90.0, help="Max angle in deg (RGBA continuous)")
+    p_preview.add_argument("--filter", action=argparse.BooleanOptionalAction, default=True, help="Smooth gradients via masked bilateral filter (RGBA continuous)")
+    p_preview.add_argument("--round-angles", action=argparse.BooleanOptionalAction, default=False, help="Round active angles to integer degrees (RGBA continuous)")
+    p_preview.add_argument("--round-period-50nm", action=argparse.BooleanOptionalAction, default=False, help="Round active grating periods to 50 nm increments (RGBA continuous)")
     p_preview.add_argument("--aperture-mm", type=float, default=2.0, help="Observer aperture radius in mm (default: 2.0)")
     p_preview.add_argument("--light-size-mm", type=float, default=20.0, help="Light source physical radius in mm (default: 20.0)")
     p_preview.add_argument(
@@ -110,7 +131,18 @@ def main(args: Optional[list[str]] = None) -> int:
             design = load_design_artifact(in_path)
         else:
             pitch_nm = int(round(parsed.pitch_um * 1000.0))
-            design = build_design(in_path, encoding_profile=parsed.profile, pitch_nm=pitch_nm)
+            design = build_design(
+                in_path,
+                encoding_profile=parsed.profile,
+                pitch_nm=pitch_nm,
+                min_period_nm=getattr(parsed, "min_period_nm", 400.0),
+                max_period_nm=getattr(parsed, "max_period_nm", 1600.0),
+                min_angle_deg=getattr(parsed, "min_angle_deg", -90.0),
+                max_angle_deg=getattr(parsed, "max_angle_deg", 90.0),
+                apply_filter=getattr(parsed, "filter", True),
+                round_integer_angles=getattr(parsed, "round_angles", False),
+                round_period_50nm=getattr(parsed, "round_period_50nm", False),
+            )
         info = inspect_design(design)
         print(json.dumps(info, indent=2))
         return 0
@@ -142,7 +174,18 @@ def main(args: Optional[list[str]] = None) -> int:
         if in_path.suffix.lower() == ".npz":
             design = load_design_artifact(in_path)
         else:
-            design = build_design(in_path, encoding_profile=parsed.profile, pitch_nm=pitch_nm)
+            design = build_design(
+                in_path,
+                encoding_profile=parsed.profile,
+                pitch_nm=pitch_nm,
+                min_period_nm=getattr(parsed, "min_period_nm", 400.0),
+                max_period_nm=getattr(parsed, "max_period_nm", 1600.0),
+                min_angle_deg=getattr(parsed, "min_angle_deg", -90.0),
+                max_angle_deg=getattr(parsed, "max_angle_deg", 90.0),
+                apply_filter=getattr(parsed, "filter", True),
+                round_integer_angles=getattr(parsed, "round_angles", False),
+                round_period_50nm=getattr(parsed, "round_period_50nm", False),
+            )
 
         render_angles = None if parsed.no_angles else parsed.angles
         out_dir = export_bundle(
@@ -161,7 +204,18 @@ def main(args: Optional[list[str]] = None) -> int:
         if in_path.suffix.lower() == ".npz":
             design = load_design_artifact(in_path)
         else:
-            design = build_design(in_path, encoding_profile=parsed.profile, pitch_nm=pitch_nm)
+            design = build_design(
+                in_path,
+                encoding_profile=parsed.profile,
+                pitch_nm=pitch_nm,
+                min_period_nm=getattr(parsed, "min_period_nm", 400.0),
+                max_period_nm=getattr(parsed, "max_period_nm", 1600.0),
+                min_angle_deg=getattr(parsed, "min_angle_deg", -90.0),
+                max_angle_deg=getattr(parsed, "max_angle_deg", 90.0),
+                apply_filter=getattr(parsed, "filter", True),
+                round_integer_angles=getattr(parsed, "round_angles", False),
+                round_period_50nm=getattr(parsed, "round_period_50nm", False),
+            )
 
         from dataclasses import replace
         from dot_ebl_preview.optics.engine import LightSource

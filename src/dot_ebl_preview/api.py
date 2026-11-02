@@ -6,13 +6,21 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import numpy as np
 
-from dot_ebl_preview.core.encoding import RGB8IndexedProfile, RGB16FixedProfile
-from dot_ebl_preview.core.filters import apply_bilateral_filter, apply_gaussian_filter
+from dot_ebl_preview.core.encoding import (
+    RGB8IndexedProfile,
+    RGB16FixedProfile,
+    RGBAContinuousProfile,
+)
+from dot_ebl_preview.core.filters import (
+    apply_bilateral_filter,
+    apply_gaussian_filter,
+    apply_masked_bilateral_filter,
+)
 from dot_ebl_preview.core.model import Design
 from dot_ebl_preview.core.operations import apply_radial_gradient
 from dot_ebl_preview.core.resample import downscale_design
 from dot_ebl_preview.io.artifacts import load_design_artifact, save_design_artifact
-from dot_ebl_preview.io.images import load_image_rgb
+from dot_ebl_preview.io.images import load_image_rgb, load_image_raw, save_image_rgba
 from dot_ebl_preview.io.legacy_hls import import_legacy_hls
 from dot_ebl_preview.io.legacy_unity import import_legacy_unity_hsv
 from dot_ebl_preview.jobs.bundle import stage_and_export_bundle
@@ -32,18 +40,34 @@ def build_design(
     encoding_profile: str = "rgb8-indexed-v1",
     pitch_nm: int = 20000,
     downscale_factor: int = 1,
+    min_period_nm: float = 400.0,
+    max_period_nm: float = 1600.0,
+    min_angle_deg: float = -90.0,
+    max_angle_deg: float = 90.0,
+    apply_filter: bool = True,
+    round_integer_angles: bool = False,
+    round_period_50nm: bool = False,
 ) -> Design:
-    """Build an authoritative, validated physical Design from an RGB encoded parameter image.
+    """Build an authoritative, validated physical Design from an RGB or RGBA encoded parameter image.
 
     Args:
         image_path: Path to the encoded PNG/BMP image containing grating parameters.
         encoding_profile: Profile name for channel decoding. Supported values:
-            - 'rgb8-indexed-v1': uint8 RGB image with discrete LUTs (R=period index,
+            - 'rgb8-indexed-v1' / 'RGB8 indexed': uint8 RGB image with discrete LUTs (R=period index,
               G=angle index, B=activity flag: 0=inactive, 255=active).
-            - 'rgb16-fixed-v1': uint16 RGB image with fixed physical grid (R=period in nm,
+            - 'rgb16-fixed-v1' / 'RGB16 fixed': uint16 RGB image with fixed physical grid (R=period in nm,
               G=angle in 0.01 deg with 32768 offset, B=activity flag: 0=inactive, 65535=active).
+            - 'rgba-continuous-v1' / 'RGBA continuous': uint8 or uint16 Truecolor+Alpha PNG image (R=linear period,
+              G=linear angle, B=unused, A>=50% opacity flag).
         pitch_nm: Holopixel lattice spacing in nanometres (default: 20000 nm = 20 µm).
         downscale_factor: Integer downsampling factor using nearest-neighbor indexing (default: 1).
+        min_period_nm: Minimum grating period in nm for RGBA continuous profile (default: 400.0 nm).
+        max_period_nm: Maximum grating period in nm for RGBA continuous profile (default: 1600.0 nm).
+        min_angle_deg: Minimum grating orientation in degrees for RGBA continuous profile (default: -90.0 deg).
+        max_angle_deg: Maximum grating orientation in degrees for RGBA continuous profile (default: +90.0 deg).
+        apply_filter: Whether to apply masked bilateral filter on ingest for RGBA continuous (default: True).
+        round_integer_angles: Whether to round active angles to integer degrees for RGBA continuous (default: False).
+        round_period_50nm: Whether to round active grating periods to 50 nm increments for RGBA continuous (default: False).
 
     Returns:
         Design: Authoritative physical design containing grid dimensions, integer period array,
@@ -55,20 +79,35 @@ def build_design(
 
     Example:
         >>> from dot_ebl_preview.api import build_design
-        >>> design = build_design("hologram_params.png", encoding_profile="rgb8-indexed-v1", pitch_nm=20000)
+        >>> design = build_design("hologram_params.png", encoding_profile="rgba-continuous-v1", pitch_nm=20000)
         >>> print(design.shape, design.active_count)
     """
-    img = load_image_rgb(image_path)
-    if encoding_profile == "rgb8-indexed-v1":
+    img = load_image_raw(image_path)
+    if encoding_profile in ("rgb8-indexed-v1", "RGB8 indexed"):
         profile8 = RGB8IndexedProfile()
+        if img.ndim == 3 and img.shape[2] == 4:
+            img = img[:, :, :3]
         if img.dtype != np.uint8:
             raise ValueError(f"rgb8-indexed-v1 requires uint8 image, got {img.dtype}")
         design = profile8.decode(img, pitch_nm=pitch_nm)
-    elif encoding_profile == "rgb16-fixed-v1":
+    elif encoding_profile in ("rgb16-fixed-v1", "RGB16 fixed"):
         profile16 = RGB16FixedProfile()
+        if img.ndim == 3 and img.shape[2] == 4:
+            img = img[:, :, :3]
         if img.dtype != np.uint16:
             raise ValueError(f"rgb16-fixed-v1 requires uint16 image, got {img.dtype}")
         design = profile16.decode(img, pitch_nm=pitch_nm)
+    elif encoding_profile in ("rgba-continuous-v1", "RGBA continuous"):
+        profile_rgba = RGBAContinuousProfile(
+            min_period_nm=min_period_nm,
+            max_period_nm=max_period_nm,
+            min_angle_deg=min_angle_deg,
+            max_angle_deg=max_angle_deg,
+            apply_filter=apply_filter,
+            round_integer_angles=round_integer_angles,
+            round_period_50nm=round_period_50nm,
+        )
+        design = profile_rgba.decode(img, pitch_nm=pitch_nm)
     else:
         raise ValueError(f"Unknown encoding profile: {encoding_profile}")
 
@@ -262,4 +301,3 @@ def dot_matrix_hologram(
         return build_layout(design, top_name=layout_name)
 
     return None
-

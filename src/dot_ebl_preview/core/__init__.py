@@ -4,6 +4,7 @@ from dot_ebl_preview.core.model import Design, OperationRecord
 from dot_ebl_preview.core.encoding import (
     RGB8IndexedProfile,
     RGB16FixedProfile,
+    RGBAContinuousProfile,
     EncodingReport,
     round_half_away_from_zero,
 )
@@ -15,7 +16,7 @@ from dot_ebl_preview.core.grid import (
     centered_preview_offset_nm,
 )
 from dot_ebl_preview.core.operations import apply_radial_gradient
-from dot_ebl_preview.core.filters import apply_gaussian_filter, apply_bilateral_filter
+from dot_ebl_preview.core.filters import apply_gaussian_filter, apply_bilateral_filter, apply_masked_bilateral_filter
 from dot_ebl_preview.core.resample import downscale_design
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "OperationRecord",
     "RGB8IndexedProfile",
     "RGB16FixedProfile",
+    "RGBAContinuousProfile",
     "EncodingReport",
     "round_half_away_from_zero",
     "Extents",
@@ -33,5 +35,6 @@ __all__ = [
     "apply_radial_gradient",
     "apply_gaussian_filter",
     "apply_bilateral_filter",
+    "apply_masked_bilateral_filter",
     "downscale_design",
 ]

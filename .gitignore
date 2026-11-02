@@ -23,5 +23,16 @@ htmlcov/
 .idea/
 *.swp
 
+# Web app build & testing
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+web/*.tsbuildinfo
+web/.vite/
+
 # Output runs & large generated EBL bundles
 _OUTPUT/
+
+# Local diagnostic logs
+*.log

@@ -10,13 +10,18 @@ from typing import Literal
 from uuid import uuid4
 
 import numpy as np
+import numpy.ma
 from PIL import Image
 
 from dot_ebl_preview.api import build_design, build_layout
-from dot_ebl_preview.core.encoding import RGB8IndexedProfile, RGB16FixedProfile
+from dot_ebl_preview.core.encoding import (
+    RGB8IndexedProfile,
+    RGB16FixedProfile,
+    RGBAContinuousProfile,
+)
 from dot_ebl_preview.core.model import Design, OperationRecord
 from dot_ebl_preview.io.artifacts import load_design_artifact
-from dot_ebl_preview.io.images import save_image_rgb
+from dot_ebl_preview.io.images import load_image_raw, save_image_rgb, save_image_rgba
 from dot_ebl_preview.io.legacy_hls import import_legacy_hls, rgb_to_opencv_hls
 from dot_ebl_preview.io.legacy_unity import (
     UNITY_LASER_HUES, UNITY_PERIOD_REAL_NM, import_legacy_unity_hsv,
@@ -28,15 +33,27 @@ from dot_ebl_preview.preview.renderer import render_preview_image
 
 
 INPUT_FORMATS = (
+    "RGBA continuous",
+    "RGB8 indexed",
+    "RGB16 fixed",
     "Holtida legacy HLS",
     "Learning Shaders HLS",
     "Unity HSV",
-    "RGB8 indexed",
-    "RGB16 fixed",
 )
 
 
-def load_gui_design(path: str | Path, image_format: str, pitch_um: float) -> Design:
+def load_gui_design(
+    path: str | Path,
+    image_format: str,
+    pitch_um: float,
+    min_period_nm: float = 400.0,
+    max_period_nm: float = 1600.0,
+    min_angle_deg: float = -90.0,
+    max_angle_deg: float = 90.0,
+    apply_filter: bool = True,
+    round_integer_angles: bool = False,
+    round_period_50nm: bool = False,
+) -> Design:
     """Decode one image with the selected, explicit interpretation."""
     source = Path(path)
     if not source.is_file():
@@ -48,6 +65,19 @@ def load_gui_design(path: str | Path, image_format: str, pitch_um: float) -> Des
     pitch_nm = int(round(pitch_um * 1000.0))
     if pitch_nm <= 0:
         raise ValueError("Holopixel pitch is too small to represent in nanometres.")
+    if image_format == "RGBA continuous":
+        return build_design(
+            source,
+            encoding_profile="rgba-continuous-v1",
+            pitch_nm=pitch_nm,
+            min_period_nm=min_period_nm,
+            max_period_nm=max_period_nm,
+            min_angle_deg=min_angle_deg,
+            max_angle_deg=max_angle_deg,
+            apply_filter=apply_filter,
+            round_integer_angles=round_integer_angles,
+            round_period_50nm=round_period_50nm,
+        )
     if image_format == "Holtida legacy HLS":
         return import_legacy_hls(source, preset="holtida-ebl", pitch_nm=pitch_nm)
     if image_format == "Learning Shaders HLS":
@@ -98,7 +128,9 @@ def _canonical_channel_value(
     """Calculate the canonical channel code for a parameter value when source_raw is unavailable."""
     if kind == "gratings":
         nm = int(round(val * 1000.0))
-        if image_format == "RGB8 indexed":
+        if image_format == "RGBA continuous":
+            return str(int(np.clip(round((nm - 400.0) / (1600.0 - 400.0) * 255.0), 0, 255)))
+        elif image_format == "RGB8 indexed":
             profile = RGB8IndexedProfile()
             if nm in profile.period_lut_nm:
                 return str(profile.period_lut_nm.index(nm))
@@ -116,7 +148,9 @@ def _canonical_channel_value(
         return str(nm)
     else:
         deg = float(val)
-        if image_format == "RGB8 indexed":
+        if image_format == "RGBA continuous":
+            return str(int(np.clip(round((deg - (-90.0)) / (90.0 - (-90.0)) * 255.0), 0, 255)))
+        elif image_format == "RGB8 indexed":
             profile = RGB8IndexedProfile()
             deg_round = round(deg, 1)
             for idx, a in enumerate(profile.angle_lut_deg):
@@ -408,6 +442,11 @@ def encode_gui_design_image(
 ) -> tuple[np.ndarray, Image.Image]:
     """Encode a Design to an image array and a PIL display image matching the chosen format."""
     h, w = design.shape
+    if image_format == "RGBA continuous":
+        profile = RGBAContinuousProfile()
+        raw_arr, _report = profile.encode(design, bit_depth=8)
+        return raw_arr, Image.fromarray(raw_arr, mode="RGBA")
+
     if image_format == "RGB8 indexed":
         profile = RGB8IndexedProfile()
         try:
@@ -522,7 +561,10 @@ def save_gui_design_image(
     output = Path(path)
     if output.suffix.lower() != ".png":
         raise ValueError("Choose a .png output filename.")
-    save_image_rgb(output, raw_array)
+    if raw_array.ndim == 3 and raw_array.shape[2] == 4:
+        save_image_rgba(output, raw_array)
+    else:
+        save_image_rgb(output, raw_array)
     return output
 
 
