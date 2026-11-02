@@ -22,8 +22,9 @@ def opengl_context():
     """Skip GPU integration tests only when the required driver is unavailable."""
     pytest.importorskip("glfw")
     pytest.importorskip("OpenGL")
-    renderer = ReusableGLRenderer()
+    renderer = None
     try:
+        renderer = ReusableGLRenderer()
         design = Design(shape=(1, 1), pitch_nm=20000,
                         period_nm=np.array([[1000]], dtype=np.uint32),
                         angle_deg=np.zeros((1, 1)), active=np.ones((1, 1), dtype=bool))
@@ -33,7 +34,8 @@ def opengl_context():
             pytest.skip(str(error))
         raise
     finally:
-        renderer.close()
+        if renderer is not None:
+            renderer.close()
 
 
 @pytest.mark.usefixtures("opengl_context")
