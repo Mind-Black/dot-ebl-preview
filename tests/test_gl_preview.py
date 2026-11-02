@@ -50,6 +50,8 @@ def test_opengl_preview_matches_cpu_for_positions_orientation_and_fallback():
 
 
 def test_gui_preview_button_runs_opengl_in_worker(monkeypatch):
+    pytest.importorskip("glfw")
+    pytest.importorskip("OpenGL")
     try:
         root = tk.Tk()
     except tk.TclError as error:
@@ -519,5 +521,3 @@ def test_continuous_input_acceptance_without_frame_drops():
             assert a <= b
     finally:
         viewer.close()
-
-

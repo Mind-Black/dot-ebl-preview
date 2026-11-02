@@ -1,0 +1,589 @@
+{
+  "version": "156.0.8078.4",
+  "errors": [],
+  "flows": [
+    {
+      "preset": 0,
+      "workbench": true
+    },
+    {
+      "preset": 1,
+      "workbench": true
+    },
+    {
+      "preset": 2,
+      "workbench": true
+    },
+    {
+      "preset": 3,
+      "workbench": true
+    },
+    {
+      "tab": "Angle Map",
+      "visible": true
+    },
+    {
+      "tab": "Source Image",
+      "visible": true
+    },
+    {
+      "tab": "Analytics",
+      "visible": true
+    },
+    {
+      "tab": "Period Map",
+      "visible": true
+    },
+    {
+      "import": "hls_test.png",
+      "error": "",
+      "selects": [
+        {
+          "value": "RGBA continuous",
+          "options": [
+            "RGBA continuous",
+            "RGB8 indexed",
+            "RGB16 fixed",
+            "Holtida legacy HLS",
+            "Learning Shaders HLS",
+            "Unity HSV",
+            "NPZ design"
+          ]
+        }
+      ]
+    },
+    {
+      "import": "unity_test.png",
+      "error": "",
+      "selects": [
+        {
+          "value": "RGBA continuous",
+          "options": [
+            "RGBA continuous",
+            "RGB8 indexed",
+            "RGB16 fixed",
+            "Holtida legacy HLS",
+            "Learning Shaders HLS",
+            "Unity HSV",
+            "NPZ design"
+          ]
+        }
+      ]
+    },
+    {
+      "import": "rgb8_test.png",
+      "error": "",
+      "selects": [
+        {
+          "value": "RGBA continuous",
+          "options": [
+            "RGBA continuous",
+            "RGB8 indexed",
+            "RGB16 fixed",
+            "Holtida legacy HLS",
+            "Learning Shaders HLS",
+            "Unity HSV",
+            "NPZ design"
+          ]
+        }
+      ]
+    },
+    {
+      "import": "rgb16_test.png",
+      "error": "",
+      "selects": [
+        {
+          "value": "RGBA continuous",
+          "options": [
+            "RGBA continuous",
+            "RGB8 indexed",
+            "RGB16 fixed",
+            "Holtida legacy HLS",
+            "Learning Shaders HLS",
+            "Unity HSV",
+            "NPZ design"
+          ]
+        }
+      ]
+    },
+    {
+      "import": "design.npz",
+      "error": "",
+      "selects": [
+        {
+          "value": "NPZ design",
+          "options": [
+            "RGBA continuous",
+            "RGB8 indexed",
+            "RGB16 fixed",
+            "Holtida legacy HLS",
+            "Learning Shaders HLS",
+            "Unity HSV",
+            "NPZ design"
+          ]
+        }
+      ]
+    }
+  ],
+  "layouts": [
+    {
+      "w": 1280,
+      "h": 720,
+      "bodyWidth": 1280,
+      "panels": [
+        {
+          "class": "dual-viewport-hero",
+          "rect": {
+            "x": 0,
+            "y": 52,
+            "width": 640,
+            "height": 668,
+            "top": 52,
+            "right": 640,
+            "bottom": 720,
+            "left": 0
+          },
+          "scrollHeight": 668,
+          "clientHeight": 668
+        },
+        {
+          "class": "workbench-sidebar",
+          "rect": {
+            "x": 640,
+            "y": 52,
+            "width": 640,
+            "height": 668,
+            "top": 52,
+            "right": 1280,
+            "bottom": 720,
+            "left": 640
+          },
+          "scrollHeight": 668,
+          "clientHeight": 668
+        },
+        {
+          "class": "sidebar-content",
+          "rect": {
+            "x": 640,
+            "y": 52,
+            "width": 640,
+            "height": 668,
+            "top": 52,
+            "right": 1280,
+            "bottom": 720,
+            "left": 640
+          },
+          "scrollHeight": 1386,
+          "clientHeight": 668
+        }
+      ]
+    },
+    {
+      "w": 768,
+      "h": 1024,
+      "bodyWidth": 768,
+      "panels": [
+        {
+          "class": "dual-viewport-hero",
+          "rect": {
+            "x": 0,
+            "y": 52,
+            "width": 384,
+            "height": 972,
+            "top": 52,
+            "right": 384,
+            "bottom": 1024,
+            "left": 0
+          },
+          "scrollHeight": 990,
+          "clientHeight": 972
+        },
+        {
+          "class": "workbench-sidebar",
+          "rect": {
+            "x": 384,
+            "y": 52,
+            "width": 384,
+            "height": 972,
+            "top": 52,
+            "right": 768,
+            "bottom": 1024,
+            "left": 384
+          },
+          "scrollHeight": 972,
+          "clientHeight": 972
+        },
+        {
+          "class": "sidebar-content",
+          "rect": {
+            "x": 384,
+            "y": 52,
+            "width": 384,
+            "height": 972,
+            "top": 52,
+            "right": 768,
+            "bottom": 1024,
+            "left": 384
+          },
+          "scrollHeight": 1402,
+          "clientHeight": 972
+        }
+      ]
+    },
+    {
+      "w": 390,
+      "h": 844,
+      "bodyWidth": 390,
+      "panels": [
+        {
+          "class": "dual-viewport-hero",
+          "rect": {
+            "x": 0,
+            "y": 52,
+            "width": 195,
+            "height": 792,
+            "top": 52,
+            "right": 195,
+            "bottom": 844,
+            "left": 0
+          },
+          "scrollHeight": 881,
+          "clientHeight": 792
+        },
+        {
+          "class": "workbench-sidebar",
+          "rect": {
+            "x": 195,
+            "y": 52,
+            "width": 195,
+            "height": 792,
+            "top": 52,
+            "right": 390,
+            "bottom": 844,
+            "left": 195
+          },
+          "scrollHeight": 792,
+          "clientHeight": 792
+        },
+        {
+          "class": "sidebar-content",
+          "rect": {
+            "x": 195,
+            "y": 52,
+            "width": 195,
+            "height": 792,
+            "top": 52,
+            "right": 390,
+            "bottom": 844,
+            "left": 195
+          },
+          "scrollHeight": 1402,
+          "clientHeight": 792
+        }
+      ]
+    },
+    {
+      "w": 720,
+      "h": 450,
+      "bodyWidth": 720,
+      "panels": [
+        {
+          "class": "dual-viewport-hero",
+          "rect": {
+            "x": 0,
+            "y": 52,
+            "width": 360,
+            "height": 398,
+            "top": 52,
+            "right": 360,
+            "bottom": 450,
+            "left": 0
+          },
+          "scrollHeight": 462,
+          "clientHeight": 398
+        },
+        {
+          "class": "workbench-sidebar",
+          "rect": {
+            "x": 360,
+            "y": 52,
+            "width": 360,
+            "height": 398,
+            "top": 52,
+            "right": 720,
+            "bottom": 450,
+            "left": 360
+          },
+          "scrollHeight": 398,
+          "clientHeight": 398
+        },
+        {
+          "class": "sidebar-content",
+          "rect": {
+            "x": 360,
+            "y": 52,
+            "width": 360,
+            "height": 398,
+            "top": 52,
+            "right": 720,
+            "bottom": 450,
+            "left": 360
+          },
+          "scrollHeight": 1402,
+          "clientHeight": 398
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "text": "\n        Concentric Test Pattern\n        Circular rings with tangential orientations and asymmetric quadrant marker.\n        Load Preset →\n      ",
+      "tag": "DIV",
+      "tabIndex": -1,
+      "role": null
+    },
+    {
+      "text": "\n        Orthogonal Cross\n        Horizontal and vertical grating domains (0° / 90°) with 45° intersection.\n        Load Preset →\n      ",
+      "tag": "DIV",
+      "tabIndex": -1,
+      "role": null
+    },
+    {
+      "text": "\n        Spectral Fan Sweep\n        Continuous parameter gradient across orientation (-90° to +90°) and period (900–1200 nm).\n        Load Preset →\n      ",
+      "tag": "DIV",
+      "tabIndex": -1,
+      "role": null
+    },
+    {
+      "text": "\n        EBL Glyph Emblem\n        Distinct alphanumeric tiles with known orientation and period combinations.\n        Load Preset →\n      ",
+      "tag": "DIV",
+      "tabIndex": -1,
+      "role": null
+    }
+  ],
+  "renderer": "unavailable",
+  "controls": [
+    {
+      "type": "file",
+      "labels": [],
+      "aria": null,
+      "value": ""
+    },
+    {
+      "type": "select-one",
+      "labels": [],
+      "aria": null,
+      "value": "NPZ design"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "20"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "20"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "0"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "0.0"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "90"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "90.0"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "55"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "55.0"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "400"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "400"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "20"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "20.0"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "1"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "1.00"
+    },
+    {
+      "type": "checkbox",
+      "labels": [
+        "Secondary Fill Light"
+      ],
+      "aria": null,
+      "value": "on"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "270"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "270.0"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "90"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "90.0"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "300"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "300"
+    },
+    {
+      "type": "range",
+      "labels": [],
+      "aria": null,
+      "value": "2"
+    },
+    {
+      "type": "number",
+      "labels": [],
+      "aria": null,
+      "value": "2.00"
+    },
+    {
+      "type": "number",
+      "labels": [
+        "Dose factor"
+      ],
+      "aria": null,
+      "value": "1"
+    },
+    {
+      "type": "text",
+      "labels": [
+        "Top structure name"
+      ],
+      "aria": null,
+      "value": "HOLOGRAM"
+    },
+    {
+      "type": "checkbox",
+      "labels": [
+        "Center full grid at (0, 0)"
+      ],
+      "aria": null,
+      "value": ""
+    }
+  ],
+  "probe": "Cell (64, 64): x=0.010 mm, y=-0.010 mm | Period: 900 nm | Stored: -45.00° | Effective: -45.00°",
+  "downloads": [
+    {
+      "name": "Parameter Distribution (CSV)",
+      "file": "parameter_distribution_128x128.csv",
+      "bytes": 158824
+    },
+    {
+      "name": "Parameter Metadata (JSON)",
+      "file": "design_metadata_128x128.json",
+      "bytes": 271186
+    },
+    {
+      "name": "Optical Preview PNG (1:1)",
+      "file": "optical_preview_128x128.png",
+      "bytes": 2161
+    },
+    {
+      "name": "Perspective Capture PNG",
+      "file": "perspective_capture_128x128.png",
+      "bytes": 3357
+    },
+    {
+      "name": "GDS",
+      "file": "HOLOGRAM.gds"
+    },
+    {
+      "name": "ZIP",
+      "file": "HOLOGRAM_bundle.zip"
+    }
+  ],
+  "dialog": {
+    "text": "EBL fabrication — reviewed snapshot\nPitch: 20000 nm\nApplied orientation: 0�\nGrid cells: 16384\nActive cells: 12096\nUnique periods: 5\nStored paths: 92\nPlaced exposures: 227062\nSkipped stored / placed: 0 / 0\nGrid extents: 2.56 × 2.56 mm\nLayer: 1; dose: 1\nOrigin offset (nm): 0, 0\nSoftware validated; hardware qualification separate.\nGenerate GDSGenerate ZIPClose / Cancel",
+    "name": null
+  },
+  "dialogClosed": false,
+  "returnFocus": "Export EBL Layout (.gds)",
+  "corrupt": "InvalidStateError: The source image could not be decoded.",
+  "unsupported": "InvalidStateError: The source image could not be decoded.",
+  "firefox": {
+    "version": "157.0",
+    "workbench": true
+  },
+  "webkit": {
+    "error": "TimeoutError: browserType.launch: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - <launching> C:\\Users\\minjuo\\AppData\\Local\\ms-playwright\\webkit-2370\\Playwright.exe --inspector-pipe --disable-accelerated-compositing --headless --no-startup-window\u001b[22m\n\u001b[2m  - <launched> pid=32516\u001b[22m\n"
+  }
+}

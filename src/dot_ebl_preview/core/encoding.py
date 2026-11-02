@@ -412,3 +412,202 @@ class RGB16FixedProfile:
             verified=True,
         )
         return img, report
+
+
+@dataclass
+class RGBAContinuousProfile:
+    """Profile rgba-continuous-v1: Continuous linear mapping for Truecolor + Alpha (RGBA) images.
+
+    Encoding Contract:
+      - Supports both 8-bit (uint8) and 16-bit (uint16) Truecolor + Alpha PNGs (PNG color type 6).
+      - R Channel (Period): Continuous linear mapping across [min_period_nm, max_period_nm] nm.
+        Default range is 400.0 to 1600.0 nm.
+        Formula: period = min_period_nm + (R / R_max) * (max_period_nm - min_period_nm).
+      - G Channel (Angle): Continuous linear mapping across [min_angle_deg, max_angle_deg] degrees.
+        Default range is -90.0 to +90.0 deg.
+        Formula: angle = min_angle_deg + (G / G_max) * (max_angle_deg - min_angle_deg).
+      - B Channel (Reserved / Unused): Ignored on decode; set to 0 when exporting.
+      - A Channel (Activation Flag): Thresholded at 50% opacity (A >= 128 for 8-bit, A >= 32768 for 16-bit).
+        Inactive cells output period = 0, angle = 0.
+      - Noise & Anti-Aliasing Mitigation (Masked Bilateral Filter):
+        Valid-only bilateral filter on ingest (enabled by default):
+        * Period filtering: Valid-only scalar bilateral filter.
+        * Angle filtering: Valid-only axial bilateral filter with nearest-branch lifting.
+    """
+    profile_id: str = "rgba-continuous-v1"
+    min_period_nm: float = 400.0
+    max_period_nm: float = 1600.0
+    min_angle_deg: float = -90.0
+    max_angle_deg: float = 90.0
+    apply_filter: bool = True
+    round_integer_angles: bool = False
+    round_period_50nm: bool = False
+    filter_diameter: int = 3
+    filter_sigma_color_period: float = 50.0
+    filter_sigma_color_angle: float = 10.0
+    filter_sigma_space: float = 100.0
+
+    def __post_init__(self) -> None:
+        if self.min_period_nm <= 0:
+            raise ValueError(f"min_period_nm must be positive, got {self.min_period_nm}")
+        if self.max_period_nm <= self.min_period_nm:
+            raise ValueError(f"max_period_nm ({self.max_period_nm}) must be greater than min_period_nm ({self.min_period_nm})")
+        if self.max_angle_deg <= self.min_angle_deg:
+            raise ValueError(f"max_angle_deg ({self.max_angle_deg}) must be greater than min_angle_deg ({self.min_angle_deg})")
+        if self.filter_diameter < 1:
+            raise ValueError(f"filter_diameter must be >= 1, got {self.filter_diameter}")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "profile_id": self.profile_id,
+            "min_period_nm": self.min_period_nm,
+            "max_period_nm": self.max_period_nm,
+            "min_angle_deg": self.min_angle_deg,
+            "max_angle_deg": self.max_angle_deg,
+            "apply_filter": self.apply_filter,
+            "round_integer_angles": self.round_integer_angles,
+            "round_period_50nm": self.round_period_50nm,
+            "filter_diameter": self.filter_diameter,
+            "filter_sigma_color_period": self.filter_sigma_color_period,
+            "filter_sigma_color_angle": self.filter_sigma_color_angle,
+            "filter_sigma_space": self.filter_sigma_space,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> RGBAContinuousProfile:
+        return cls(
+            profile_id=d.get("profile_id", "rgba-continuous-v1"),
+            min_period_nm=float(d.get("min_period_nm", 400.0)),
+            max_period_nm=float(d.get("max_period_nm", 1600.0)),
+            min_angle_deg=float(d.get("min_angle_deg", -90.0)),
+            max_angle_deg=float(d.get("max_angle_deg", 90.0)),
+            apply_filter=bool(d.get("apply_filter", True)),
+            round_integer_angles=bool(d.get("round_integer_angles", False)),
+            round_period_50nm=bool(d.get("round_period_50nm", False)),
+            filter_diameter=int(d.get("filter_diameter", 3)),
+            filter_sigma_color_period=float(d.get("filter_sigma_color_period", 50.0)),
+            filter_sigma_color_angle=float(d.get("filter_sigma_color_angle", 10.0)),
+            filter_sigma_space=float(d.get("filter_sigma_space", 100.0)),
+        )
+
+    def decode(self, img_rgba: NDArray[np.uint8 | np.uint16], pitch_nm: int = 20000) -> Design:
+        """Decode uint8 or uint16 RGBA image to Design."""
+        if img_rgba.ndim != 3 or img_rgba.shape[2] != 4:
+            raise ValueError(f"Expected HxWx4 RGBA array, got shape {img_rgba.shape}")
+        if img_rgba.dtype not in (np.uint8, np.uint16):
+            raise ValueError(f"Expected uint8 or uint16 dtype, got {img_rgba.dtype}")
+
+        h, w, _ = img_rgba.shape
+        r_chan = img_rgba[:, :, 0]
+        g_chan = img_rgba[:, :, 1]
+        # b_chan = img_rgba[:, :, 2] is ignored
+        a_chan = img_rgba[:, :, 3]
+
+        max_val = 65535.0 if img_rgba.dtype == np.uint16 else 255.0
+        alpha_thresh = 32768 if img_rgba.dtype == np.uint16 else 128
+
+        active = a_chan >= alpha_thresh
+
+        period_nm = np.zeros((h, w), dtype=np.uint32)
+        angle_deg = np.zeros((h, w), dtype=np.float64)
+
+        if np.any(active):
+            r_norm = r_chan[active].astype(np.float64) / max_val
+            raw_period = self.min_period_nm + r_norm * (self.max_period_nm - self.min_period_nm)
+            period_nm[active] = round_half_away_from_zero(raw_period).astype(np.uint32)
+
+            g_norm = g_chan[active].astype(np.float64) / max_val
+            raw_angle = self.min_angle_deg + g_norm * (self.max_angle_deg - self.min_angle_deg)
+            angle_deg[active] = raw_angle
+
+        design = Design(
+            shape=(h, w),
+            pitch_nm=pitch_nm,
+            period_nm=period_nm,
+            angle_deg=angle_deg,
+            active=active,
+            source_identity=f"rgba-continuous:{self.profile_id}",
+        )
+
+        if self.apply_filter and np.any(active):
+            from dot_ebl_preview.core.filters import apply_masked_bilateral_filter
+            design = apply_masked_bilateral_filter(
+                design,
+                diameter=self.filter_diameter,
+                sigma_color_period=self.filter_sigma_color_period,
+                sigma_color_angle=self.filter_sigma_color_angle,
+                sigma_space=self.filter_sigma_space,
+                filter_period=True,
+                filter_angle=True,
+            )
+
+        if self.round_period_50nm and np.any(design.active):
+            design.period_nm[design.active] = (
+                round_half_away_from_zero(design.period_nm[design.active] / 50.0) * 50
+            ).astype(np.uint32)
+
+        if self.round_integer_angles and np.any(design.active):
+            design.angle_deg[design.active] = round_half_away_from_zero(
+                design.angle_deg[design.active]
+            ).astype(np.float64)
+
+        return design
+
+    def encode(
+        self,
+        design: Design,
+        bit_depth: Literal[8, 16] = 8,
+    ) -> Tuple[NDArray[np.uint8 | np.uint16], EncodingReport]:
+        """Encode Design to uint8 or uint16 RGBA image."""
+        h, w = design.shape
+        dtype = np.uint16 if bit_depth == 16 else np.uint8
+        max_val = 65535.0 if bit_depth == 16 else 255.0
+        img = np.zeros((h, w, 4), dtype=dtype)
+
+        active = design.active
+        if not np.any(active):
+            report = EncodingReport(profile_id=self.profile_id, policy="continuous", active_count=0, verified=True)
+            return img, report
+
+        periods = design.period_nm[active].astype(np.float64)
+        angles = design.angle_deg[active].astype(np.float64)
+
+        period_span = self.max_period_nm - self.min_period_nm
+        angle_span = self.max_angle_deg - self.min_angle_deg
+
+        norm_p = np.clip((periods - self.min_period_nm) / period_span, 0.0, 1.0)
+        norm_a = np.clip((angles - self.min_angle_deg) / angle_span, 0.0, 1.0)
+
+        r_codes = round_half_away_from_zero(norm_p * max_val).astype(dtype)
+        g_codes = round_half_away_from_zero(norm_a * max_val).astype(dtype)
+
+        img[active, 0] = r_codes
+        img[active, 1] = g_codes
+        img[active, 2] = 0
+        img[active, 3] = int(max_val)
+
+        # Verification step (without filter to measure encoding loss)
+        from dataclasses import replace
+        unfiltered_prof = replace(self, apply_filter=False)
+        decoded = unfiltered_prof.decode(img, pitch_nm=design.pitch_nm)
+        assert np.array_equal(decoded.active, design.active), "Activity mask mismatch in RGBA decode."
+
+        period_errs = np.abs(decoded.period_nm[active].astype(np.float64) - periods)
+        angle_errs = np.abs(decoded.angle_deg[active] - angles)
+
+        max_p_err = float(np.max(period_errs)) if len(period_errs) > 0 else 0.0
+        rms_p_err = float(np.sqrt(np.mean(np.square(period_errs)))) if len(period_errs) > 0 else 0.0
+        max_a_err = float(np.max(angle_errs)) if len(angle_errs) > 0 else 0.0
+        rms_a_err = float(np.sqrt(np.mean(np.square(angle_errs)))) if len(angle_errs) > 0 else 0.0
+
+        report = EncodingReport(
+            profile_id=self.profile_id,
+            policy="continuous",
+            active_count=int(np.count_nonzero(active)),
+            max_period_error_nm=max_p_err,
+            rms_period_error_nm=rms_p_err,
+            max_angle_error_deg=max_a_err,
+            rms_angle_error_deg=rms_a_err,
+            verified=True,
+        )
+        return img, report

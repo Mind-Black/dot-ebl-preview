@@ -178,7 +178,10 @@ def test_design_window_editing_workflow(tmp_path):
     import tkinter as tk
     from dot_ebl_preview.gui import DesignWindow
 
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except tk.TclError as error:
+        pytest.skip(f"Desktop session unavailable: {error}")
     root.withdraw()
     try:
         win = DesignWindow(root)
@@ -312,5 +315,3 @@ def test_parameter_table_entries_empty():
     chan_p, p_entries = parameter_table_entries(design, "gratings", "RGB8 indexed", None)
     assert chan_p == "R"
     assert p_entries == []
-
-

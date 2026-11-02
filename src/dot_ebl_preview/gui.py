@@ -13,6 +13,7 @@ from typing import Callable
 import numpy as np
 from PIL import Image, ImageTk
 
+from dot_ebl_preview.core.encoding import RGBAContinuousProfile
 from dot_ebl_preview.core.model import Design
 from dot_ebl_preview.gui_logic import (
     INPUT_FORMATS, LightSource, SceneSettings, apply_parameter_edit, direction_from_position,
@@ -20,7 +21,7 @@ from dot_ebl_preview.gui_logic import (
     parameter_map, parameter_table_entries, position_from_direction, render_scene,
     render_scene_gpu, save_gds, save_gui_design_image,
 )
-from dot_ebl_preview.io.images import load_image_rgb
+from dot_ebl_preview.io.images import load_image_raw, load_image_rgb
 from dot_ebl_preview.preview.realtime import RealtimeViewer
 
 
@@ -73,6 +74,13 @@ class DesignWindow:
         self.renderer_var = tk.StringVar(value="OpenGL (fast)")
         self.live_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Choose a design image or a saved .npz design.")
+        self.rgba_min_period_var = tk.StringVar(value="400")
+        self.rgba_max_period_var = tk.StringVar(value="1600")
+        self.rgba_min_angle_var = tk.StringVar(value="-90")
+        self.rgba_max_angle_var = tk.StringVar(value="90")
+        self.rgba_filter_var = tk.BooleanVar(value=True)
+        self.rgba_round_angles_var = tk.BooleanVar(value=False)
+        self.rgba_round_period_var = tk.BooleanVar(value=False)
         self.sources_data: list[dict[str, str]] = [{
             "mode": "XYZ", "x": "0", "y": "229.4306", "z": "327.6608",
             "az": "90", "el": "55", "distance": "400",
@@ -93,7 +101,8 @@ class DesignWindow:
         for variable in (self.orientation_var, self.renderer_var, *self.source_vars.values(),
                          *self.observer_vars.values()):
             variable.trace_add("write", self._scene_changed)
-        self.root.after(16, self._poll_results)
+        self._poll_timer_id: str | None = None
+        self._poll_timer_id = self.root.after(16, self._poll_results)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
 
     @staticmethod
@@ -137,12 +146,55 @@ class DesignWindow:
         ttk.Entry(path_row, textvariable=self.path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         self._button(path_row, "Browse...", self._browse).pack(side=tk.LEFT, padx=(5, 0))
         ttk.Label(source, text="Image interpretation").pack(anchor=tk.W, pady=(7, 1))
-        ttk.Combobox(source, textvariable=self.format_var, values=INPUT_FORMATS, state="readonly").pack(fill=tk.X)
-        pitch_row = ttk.Frame(source)
-        pitch_row.pack(fill=tk.X, pady=(7, 0))
-        ttk.Label(pitch_row, text="Holopixel pitch (µm)").pack(side=tk.LEFT)
-        ttk.Entry(pitch_row, textvariable=self.pitch_var, width=10).pack(side=tk.RIGHT)
+        self.format_combo = ttk.Combobox(source, textvariable=self.format_var, values=INPUT_FORMATS, state="readonly")
+        self.format_combo.pack(fill=tk.X)
+
+        self.rgba_panel = ttk.LabelFrame(source, text="RGBA Interpretation", padding=6)
+        p_row = ttk.Frame(self.rgba_panel)
+        p_row.pack(fill=tk.X, pady=(2, 2))
+        ttk.Label(p_row, text="Period min (nm):").pack(side=tk.LEFT)
+        ttk.Entry(p_row, textvariable=self.rgba_min_period_var, width=6).pack(side=tk.LEFT, padx=(2, 8))
+        ttk.Label(p_row, text="max:").pack(side=tk.LEFT)
+        ttk.Entry(p_row, textvariable=self.rgba_max_period_var, width=6).pack(side=tk.LEFT, padx=(2, 0))
+
+        a_row = ttk.Frame(self.rgba_panel)
+        a_row.pack(fill=tk.X, pady=(2, 2))
+        ttk.Label(a_row, text="Angle min (°):").pack(side=tk.LEFT)
+        ttk.Entry(a_row, textvariable=self.rgba_min_angle_var, width=6).pack(side=tk.LEFT, padx=(2, 8))
+        ttk.Label(a_row, text="max:").pack(side=tk.LEFT)
+        ttk.Entry(a_row, textvariable=self.rgba_max_angle_var, width=6).pack(side=tk.LEFT, padx=(2, 0))
+
+        ttk.Checkbutton(
+            self.rgba_panel,
+            text="Smooth Gradients",
+            variable=self.rgba_filter_var,
+            command=self._rgba_settings_changed,
+        ).pack(anchor=tk.W, pady=(2, 0))
+
+        ttk.Checkbutton(
+            self.rgba_panel,
+            text="Round to Integer Angles",
+            variable=self.rgba_round_angles_var,
+            command=self._rgba_settings_changed,
+        ).pack(anchor=tk.W, pady=(2, 0))
+
+        ttk.Checkbutton(
+            self.rgba_panel,
+            text="Round Period to 50 nm",
+            variable=self.rgba_round_period_var,
+            command=self._rgba_settings_changed,
+        ).pack(anchor=tk.W, pady=(2, 0))
+
+        self.pitch_row = ttk.Frame(source)
+        self.pitch_row.pack(fill=tk.X, pady=(7, 0))
+        ttk.Label(self.pitch_row, text="Holopixel pitch (µm)").pack(side=tk.LEFT)
+        ttk.Entry(self.pitch_row, textvariable=self.pitch_var, width=10).pack(side=tk.RIGHT)
         self._button(source, "Load design", self._load).pack(fill=tk.X, pady=(8, 0))
+
+        self.format_var.trace_add("write", self._format_changed)
+        for v in (self.rgba_min_period_var, self.rgba_max_period_var, self.rgba_min_angle_var, self.rgba_max_angle_var):
+            v.trace_add("write", self._rgba_settings_changed)
+        self._format_changed()
 
         data = ttk.LabelFrame(form, text="2  Found parameters", padding=8)
         data.pack(fill=tk.X, pady=(0, 8))
@@ -542,6 +594,8 @@ class DesignWindow:
         self.worker.submit(run)
 
     def _poll_results(self) -> None:
+        if self.closed:
+            return
         try:
             while True:
                 completed, result, error, blocking = self.results.get_nowait()
@@ -572,7 +626,10 @@ class DesignWindow:
             elapsed = perf_counter() - self._last_poll_time
             delay_ms = max(1, min(16, int((0.016 - elapsed) * 1000))) if elapsed < 0.016 else 1
             self._last_poll_time = perf_counter()
-            self.root.after(delay_ms, self._poll_results)
+            try:
+                self._poll_timer_id = self.root.after(delay_ms, self._poll_results)
+            except Exception:
+                self._poll_timer_id = None
 
     def _poll_viewer_events(self) -> None:
         viewer = self.viewer
@@ -665,6 +722,67 @@ class DesignWindow:
         finally:
             self._from_viewer = False
 
+    def _format_changed(self, *args) -> None:
+        if self.format_var.get() == "RGBA continuous":
+            self.rgba_panel.pack(fill=tk.X, pady=(6, 0), before=self.pitch_row)
+        else:
+            self.rgba_panel.pack_forget()
+
+    def _rgba_settings_changed(self, *args) -> None:
+        if self.format_var.get() != "RGBA continuous" or self.original_source_raw is None:
+            return
+        try:
+            min_p = float(self.rgba_min_period_var.get())
+            max_p = float(self.rgba_max_period_var.get())
+            min_a = float(self.rgba_min_angle_var.get())
+            max_a = float(self.rgba_max_angle_var.get())
+            filt = bool(self.rgba_filter_var.get())
+            round_angles = bool(self.rgba_round_angles_var.get())
+            round_period = bool(self.rgba_round_period_var.get())
+            pitch = float(self.pitch_var.get())
+        except ValueError:
+            return
+        if min_p <= 0 or max_p <= min_p or max_a <= min_a or pitch <= 0:
+            return
+
+        pitch_nm = int(round(pitch * 1000.0))
+        profile = RGBAContinuousProfile(
+            min_period_nm=min_p,
+            max_period_nm=max_p,
+            min_angle_deg=min_a,
+            max_angle_deg=max_a,
+            apply_filter=filt,
+            round_integer_angles=round_angles,
+            round_period_50nm=round_period,
+        )
+        try:
+            design = profile.decode(self.original_source_raw, pitch_nm=pitch_nm)
+        except Exception:
+            return
+        self.design = design
+        self.original_design = design.copy()
+        chan_name_p, periods = parameter_table_entries(design, "gratings", "RGBA continuous", self.source_raw)
+        chan_name_a, angles = parameter_table_entries(design, "angles", "RGBA continuous", self.source_raw)
+        self.period_table.heading("channel", text=f"Channel ({chan_name_p})")
+        self.angle_table.heading("channel", text=f"Channel ({chan_name_a})")
+        self._table_data["gratings"] = periods
+        self._table_data["angles"] = angles
+        for table, entries in ((self.period_table, periods), (self.angle_table, angles)):
+            table.delete(*table.get_children())
+            for value, chan_str, count in entries:
+                table.insert("", tk.END, values=(f"{value:g}", chan_str, f"{count:,}"))
+        self.summary_var.set(
+            f"{design.width} × {design.height} cells  •  {design.active_count:,} active  •  "
+            f"{len(periods)} periods  •  {len(angles)} angles  •  pitch {design.pitch_nm / 1000:g} µm"
+        )
+        for key, image, values, unit in (
+            ("periods", parameter_map(design, "gratings"), periods, "µm"),
+            ("angles", parameter_map(design, "angles"), angles, "°"),
+        ):
+            span = f"{values[0][0]:g} to {values[-1][0]:g} {unit}" if values else "no active cells"
+            self._set_panel(key, image, f"{span} • dark = inactive")
+        self._scene_changed()
+
     def _load(self) -> None:
         if self.busy:
             return
@@ -672,17 +790,44 @@ class DesignWindow:
         image_format = self.format_var.get()
         try:
             pitch = float(self.pitch_var.get())
+            rgba_min_p = float(self.rgba_min_period_var.get())
+            rgba_max_p = float(self.rgba_max_period_var.get())
+            rgba_min_a = float(self.rgba_min_angle_var.get())
+            rgba_max_a = float(self.rgba_max_angle_var.get())
+            rgba_filt = bool(self.rgba_filter_var.get())
+            rgba_round_angles = bool(self.rgba_round_angles_var.get())
+            rgba_round_period = bool(self.rgba_round_period_var.get())
         except ValueError:
             messagebox.showerror("Invalid pitch", "Enter a numeric holopixel pitch in µm.", parent=self.root)
             return
 
         def work():
-            design = load_gui_design(path, image_format, pitch)
+            design = load_gui_design(
+                path,
+                image_format,
+                pitch,
+                min_period_nm=rgba_min_p,
+                max_period_nm=rgba_max_p,
+                min_angle_deg=rgba_min_a,
+                max_angle_deg=rgba_max_a,
+                apply_filter=rgba_filt,
+                round_integer_angles=rgba_round_angles,
+                round_period_50nm=rgba_round_period,
+            )
             source_raw = None
             source_image = None
             if Path(path).suffix.lower() != ".npz":
-                source_raw = load_image_rgb(path)
-                if source_raw.dtype == np.uint16:
+                source_raw = load_image_raw(path)
+                if source_raw.ndim == 3 and source_raw.shape[2] == 4:
+                    if source_raw.dtype == np.uint16:
+                        vis = np.zeros((*design.shape, 3), dtype=np.uint8)
+                        vis[:, :, 0] = np.clip(source_raw[:, :, 0] >> 8, 0, 255).astype(np.uint8)
+                        vis[:, :, 1] = np.clip(source_raw[:, :, 1] >> 8, 0, 255).astype(np.uint8)
+                        vis[:, :, 2] = np.where(design.active, 255, 0).astype(np.uint8)
+                        source_image = Image.fromarray(vis, mode="RGB")
+                    else:
+                        source_image = Image.fromarray(source_raw, mode="RGBA").convert("RGB")
+                elif source_raw.dtype == np.uint16:
                     vis = np.zeros((*design.shape, 3), dtype=np.uint8)
                     vis[:, :, 0] = np.clip(source_raw[:, :, 0] >> 4, 0, 255).astype(np.uint8)
                     vis[:, :, 1] = np.clip(source_raw[:, :, 1] >> 8, 0, 255).astype(np.uint8)
@@ -1297,6 +1442,12 @@ class DesignWindow:
 
     def _close(self) -> None:
         self.closed = True
+        if getattr(self, "_poll_timer_id", None) is not None:
+            try:
+                self.root.after_cancel(self._poll_timer_id)
+            except Exception:
+                pass
+            self._poll_timer_id = None
         if getattr(self, "_inline_entry", None) is not None:
             try:
                 self._inline_entry.destroy()
@@ -1305,8 +1456,11 @@ class DesignWindow:
             self._inline_entry = None
         self._cancel_preview_request()
         self._stop_viewer()
-        self.worker.shutdown(wait=False, cancel_futures=True)
-        self.root.destroy()
+        self.worker.shutdown(wait=True, cancel_futures=True)
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
 
 def main() -> None:

@@ -1,5 +1,26 @@
 # dot-ebl-preview
 
+## Web application and deployment
+
+[Open Dot EBL Preview](https://mind-black.github.io/dot-ebl-preview/).
+The web application processes imported files locally in the browser, with no backend uploads.
+Use a current desktop Chromium browser with WebGL2 enabled for the validated optical preview.
+
+From `web`, run `npm ci` and `npm run dev` (http://localhost:3000).
+Validate with `npm run check`, `npm test`, and `npm run build`.
+Install browser tests with `npx playwright install chromium`, then run `npm run test:browser`.
+For production-path testing in PowerShell, set `$env:TEST_PRODUCTION='1'` before the browser command.
+This serves `dist` beneath `/dot-ebl-preview/`, including module workers.
+
+Private repositories require an account plan supporting GitHub Pages.
+GitHub Settings > Pages must use **GitHub Actions** as the publishing source.
+Pull requests validate Python and the production web build. Merging into `main` publishes
+`web/dist` after both jobs pass. The Validate and deploy workflow also supports manual
+redeployment from `main`. Deployment results and the live URL appear in its `github-pages`
+environment; browser reports and failure traces are retained for 14 days.
+To roll back, revert the release commit through a PR and merge after checks pass.
+
+
 ## Windows desktop GUI
 
 Run `dist\DotEBLPreview.exe` to open the desktop interface. It loads a PNG/BMP/TIFF design image or a saved `design.npz`, lists every active grating period and angle with cell counts, and shows four panes at once: the original RGB file, the extracted grating period map, the extracted rotation angle map, and live OpenGL diffraction. A saved `.npz` design has no original RGB file, so that pane explains the missing source. The GUI also saves a Raith GDSII file. It offers explicit image interpretations: Holtida legacy HLS, Learning Shaders HLS, Unity HSV, RGB8 indexed, and RGB16 fixed. Choose the interpretation used to create the image; a regular photograph has no defined grating parameters.
@@ -237,7 +258,7 @@ dot-ebl preview sample_design.npz -o preview.png --preset corrected
 ### Core Workflows
 
 The top-level package [`dot_ebl_preview.api`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/api.py) exposes the primary functional interface:
- 
+
 - [`build_design(image_path, encoding_profile='rgb8-indexed-v1', pitch_nm=20000, downscale_factor=1) -> Design`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/api.py#L23-L71)
   Builds a validated [`Design`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/core/model.py#L24-L143) from an RGB parameter image.
 - [`build_layout(design, top_name='HOLOGRAM') -> FabricationPlan`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/api.py#L74-L93)
@@ -248,18 +269,18 @@ The top-level package [`dot_ebl_preview.api`](file:///c:/Users/minjuo/Dev/dot-eb
   Calculates design summary statistics, cell activity, physical extents, and SHA-256 hashes.
 - [`dot_matrix_hologram(...) -> Optional[FabricationPlan]`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/api.py#L185-L238)
   Drop-in backwards compatibility wrapper matching the legacy Holtida-EBL calling convention.
- 
+
 ### Data Model & Layout Plan
- 
+
 - [`Design`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/core/model.py#L24-L143):
   The authoritative immutable design representation. Contains `shape` $(H, W)$, `pitch_nm`, `period_nm`, `angle_deg`, `active`, `layer` (0..63), `dose` factor, `region_masks`, `appearance_rgb`, and `fallback_intensity`.
 - [`FabricationPlan`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/layout/plan.py#L17-L30):
   The derived fabrication plan containing the compiled [`RaithLibrary`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/raith/library.py), cell structure mapping, stripe count metrics, bounding box [`Extents`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/core/grid.py#L14-L28), and plan hash.
 - [`Extents`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/core/grid.py#L14-L28):
   Physical lattice bounding box in nanometres (`x_min_nm`, `x_max_nm`, `y_min_nm`, `y_max_nm`).
- 
+
 ### Filters, Operations & Resampling
- 
+
 - [`apply_gaussian_filter(design, sigma=1.0, mode='axial', radius=None) -> Design`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/core/filters.py#L39-L130):
   Valid-only masked Gaussian smoothing. In `'axial'` mode, represents angles as double-angle unit vectors $(\sin 2\theta, \cos 2\theta)$ to eliminate $180^\circ$ boundary discontinuities, lifting the result to the nearest directed branch.
 - [`apply_bilateral_filter(design, diameter=3, sigma_color=10.0, sigma_space=100.0, mode='scalar') -> Design`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/core/filters.py#L132-L209):
@@ -268,16 +289,16 @@ The top-level package [`dot_ebl_preview.api`](file:///c:/Users/minjuo/Dev/dot-eb
   Applies radial angle gradients across designated mask regions (e.g. `hue_162`).
 - [`downscale_design(design, factor: int) -> Design`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/core/resample.py#L12-L73):
   Nearest-neighbor integer grid downsampling, preserving exact discrete table entries and masks.
- 
+
 ### Legacy Importers
- 
+
 - [`import_legacy_hls(image_path, preset='holtida-ebl', mode='corrected', pitch_nm=None, apply_radial=True) -> Design`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/io/legacy_hls.py#L71-L161):
   Decodes historical images through the OpenCV HLS pipeline. `'corrected'` mode fixes historical white-masking and sentinel defects; `'legacy-exact'` mode reproduces historical behavior for audit comparisons.
 - [`import_legacy_unity_hsv(image_path, min_angle_deg=-10.0, max_angle_deg=10.0, pitch_nm=60000) -> Design`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/io/legacy_unity.py#L69-L117):
   Port of the `HologramShader.shader` HSV mapping and calibrated 8-period laser palette.
- 
+
 ### Pure-Python Raith GDSII Writer
- 
+
 Contained in [`dot_ebl_preview.raith`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/raith):
 - [`PathElement(layer, vertices_nm, width_nm=0, df=1.0)`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/raith/elements.py#L26-L55):
   Zero-width single-pixel exposure line path. Encodes dose factor `df` into GDS `DATATYPE` via standard Raith mapping (`1000 * DF` up to 30, $30000 + 2(DF-30)$ above 30).
@@ -285,9 +306,9 @@ Contained in [`dot_ebl_preview.raith`](file:///c:/Users/minjuo/Dev/dot-ebl-previ
   Hierarchical structure placement with rotation, translation, and optional reflection.
 - [`write_gds_stream(lib, stream)`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/raith/writer.py#L32-L92):
   Streams binary big-endian GDSII records directly into any writable file-like buffer.
- 
+
 ### Spectral Optical Preview Engine
- 
+
 Contained in [`dot_ebl_preview.optics`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/optics):
 - [`simulate_cell_optical_color(period_nm, angle_deg, world_pos, params) -> Tuple[float, float, float]`](file:///c:/Users/minjuo/Dev/dot-ebl-preview/src/dot_ebl_preview/optics/engine.py#L88-L246):
   Evaluates diffraction geometry and sRGB color for an individual cell under directional light/camera rays.
@@ -394,3 +415,11 @@ The desktop GUI now defaults to a persistent OpenGL 3.3 renderer that evaluates 
 - [Raith Translation Scope](docs/RAITH_PORT.md): Translation audit of `Raith_GDSII` MATLAB classes to pure Python.
 - [Source Audit & Feature Coverage](docs/SOURCE_AUDIT.md): Inventory of features from historical Holtida-EBL, learning-shaders, and Unity shader codebases.
 - [Critic Review](docs/CRITIC_REVIEW.md) & [Review Responses](docs/REVIEW_RESPONSE.md): Independent evaluation and resolution log.
+
+## Web fabrication export
+
+Open **Exports & Data Artifacts / EBL Lithography Fabrication** to select layer, dose, structure name, and optional full-grid centering. **Export EBL Layout (.gds)** validates a design snapshot before generation. Generate GDS alone or a ZIP containing GDS, angles.txt, gratings.txt, design.npz, and a manifest with SHA-256 checksums. Closing the dialog cancels its worker.
+
+Image imports default to RGBA continuous, treating RGB sources as opaque. Image parsing, filtering, and statistics run in a worker. NPZ imports retain fabrication settings and artifact metadata. Stored paths and placed exposures are shown separately. Physical instrument qualification remains separate from software validation.
+
+From `web`, run `npm run check`, `npm test`, `npm run test:browser`, and `npm run build`. The Chromium 1075 by 1075 filtered-cell benchmark measured 1.73 seconds decoding and 0.79 seconds validation/export, with 69.3 MB GDS output. These are development-machine observations rather than guarantees.

@@ -207,3 +207,114 @@ def apply_bilateral_filter(
         )
     )
     return new_design
+
+
+def apply_masked_bilateral_filter(
+    design: Design,
+    diameter: int = 3,
+    sigma_color_period: float = 50.0,
+    sigma_color_angle: float = 10.0,
+    sigma_space: float = 100.0,
+    filter_period: bool = True,
+    filter_angle: bool = True,
+) -> Design:
+    """Apply valid-only masked bilateral filtering to design period (scalar) and angle (axial).
+
+    Args:
+        design: input Design
+        diameter: kernel diameter (must be >= 1; diameter <= 1 returns design copy)
+        sigma_color_period: range standard deviation for period values in nm (default: 50.0)
+        sigma_color_angle: range standard deviation for grating orientation in deg (default: 10.0)
+        sigma_space: spatial standard deviation in pixels (default: 100.0)
+        filter_period: whether to filter period_nm (default: True)
+        filter_angle: whether to filter angle_deg (default: True)
+
+    Valid-only masking strictly excludes inactive cells (active == False) so background zeros
+    do not bleed into the boundaries of active shapes.
+    Period filtering uses a valid-only scalar bilateral filter.
+    Angle filtering uses a valid-only axial (doubled-angle vector) bilateral filter with nearest-branch lifting.
+    """
+    new_design = design.copy()
+    h, w = new_design.shape
+    active = new_design.active
+    orig_periods = new_design.period_nm.copy()
+    orig_angles = new_design.angle_deg.copy()
+
+    if not np.any(active) or diameter <= 1 or (not filter_period and not filter_angle):
+        return new_design
+    if sigma_space <= 0.0 or (filter_period and sigma_color_period <= 0.0) or (filter_angle and sigma_color_angle <= 0.0):
+        return new_design
+
+    radius = diameter // 2
+    y, x = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    spatial_dist_sq = (x * x + y * y).astype(np.float64)
+    spatial_kernel = np.exp(-spatial_dist_sq / (2.0 * sigma_space * sigma_space))
+
+    pad_active = np.pad(active, radius, mode="constant", constant_values=False)
+    pad_periods = np.pad(orig_periods.astype(np.float64), radius, mode="constant", constant_values=0.0)
+    pad_angles = np.pad(orig_angles, radius, mode="constant", constant_values=0.0)
+
+    smoothed_periods = orig_periods.copy()
+    smoothed_angles = orig_angles.copy()
+
+    for r in range(h):
+        for c in range(w):
+            if not active[r, c]:
+                continue
+            sub_act = pad_active[r : r + 2 * radius + 1, c : c + 2 * radius + 1]
+
+            # 1. Period scalar bilateral filter
+            if filter_period:
+                center_p = float(orig_periods[r, c])
+                sub_p = pad_periods[r : r + 2 * radius + 1, c : c + 2 * radius + 1]
+                diff_p = sub_p - center_p
+                w_color_p = np.exp(-(diff_p ** 2) / (2.0 * sigma_color_period * sigma_color_period))
+                total_w_p = spatial_kernel * w_color_p * sub_act
+                sum_w_p = np.sum(total_w_p)
+                if sum_w_p > 1e-9:
+                    smoothed_val = np.sum(total_w_p * sub_p) / sum_w_p
+                    smoothed_periods[r, c] = int(np.floor(smoothed_val + 0.5) if smoothed_val >= 0 else np.ceil(smoothed_val - 0.5))
+                else:
+                    smoothed_periods[r, c] = orig_periods[r, c]
+
+            # 2. Angle axial bilateral filter
+            if filter_angle:
+                center_ang = float(orig_angles[r, c])
+                sub_ang = pad_angles[r : r + 2 * radius + 1, c : c + 2 * radius + 1]
+                # Directed angle distance modulo 180
+                diff_ang = (sub_ang - center_ang + 90.0) % 180.0 - 90.0
+                w_color_a = np.exp(-(diff_ang ** 2) / (2.0 * sigma_color_angle * sigma_color_angle))
+                total_w_a = spatial_kernel * w_color_a * sub_act
+                sum_w_a = np.sum(total_w_a)
+                if sum_w_a > 1e-9:
+                    rad_doubled = np.radians(2.0 * sub_ang)
+                    sin_sum = np.sum(total_w_a * np.sin(rad_doubled))
+                    cos_sum = np.sum(total_w_a * np.cos(rad_doubled))
+                    mag = np.hypot(sin_sum, cos_sum)
+                    if mag < 1e-6:
+                        smoothed_angles[r, c] = center_ang
+                    else:
+                        th2 = np.degrees(np.arctan2(sin_sum, cos_sum))
+                        smoothed_angles[r, c] = _lift_to_nearest_branch(th2 / 2.0, center_ang)
+                else:
+                    smoothed_angles[r, c] = center_ang
+
+    if filter_period:
+        new_design.period_nm[active] = smoothed_periods[active]
+    if filter_angle:
+        new_design.angle_deg[active] = smoothed_angles[active]
+
+    new_design.operations.append(
+        OperationRecord(
+            name="apply_masked_bilateral_filter",
+            params={
+                "diameter": diameter,
+                "sigma_color_period": sigma_color_period,
+                "sigma_color_angle": sigma_color_angle,
+                "sigma_space": sigma_space,
+                "filter_period": filter_period,
+                "filter_angle": filter_angle,
+            },
+        )
+    )
+    return new_design
