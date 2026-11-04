@@ -13,15 +13,16 @@ import { WelcomeView } from './components/welcome/WelcomeView';
 import { WebGlDiffractionRenderer } from './lib/optics/glRenderer';
 import { designStore } from './lib/store/designStore';
 import { sceneStore } from './lib/store/sceneStore';
+import { createShowcaseHologram } from './lib/presets/sampleDesigns';
 
 class DotEblApp {
   private root: HTMLElement;
-  private welcomeView: WelcomeView;
-  private dualViewport: DualViewport;
-  private designControls: DesignControls;
-  private sceneControls: SceneControls;
-  private statsPanel: StatsPanel;
-  private exportControls: ExportControls;
+  public welcomeView: WelcomeView;
+  public dualViewport: DualViewport;
+  public designControls: DesignControls;
+  public sceneControls: SceneControls;
+  public statsPanel: StatsPanel;
+  public exportControls: ExportControls;
 
   private periodMapCanvas: ParameterMapCanvas;
   private angleMapCanvas: ParameterMapCanvas;
@@ -165,5 +166,15 @@ window.addEventListener('DOMContentLoaded', () => {
     designStore,
     sceneStore,
     WebGlDiffractionRenderer,
+    createShowcaseHologram,
   };
+
+  // Optional direct launch via URL query (?showcase=1)
+  if (typeof window !== 'undefined' && window.location.search) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('showcase') || params.has('default')) {
+      designStore.setPhysicalDesign(createShowcaseHologram(256));
+      app.showWorkbench();
+    }
+  }
 });

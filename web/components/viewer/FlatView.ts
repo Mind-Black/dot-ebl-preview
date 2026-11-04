@@ -8,6 +8,7 @@ import type { HoverCellInfo } from './PerspectiveView';
 import { WebGlDiffractionRenderer } from '../../lib/optics/glRenderer';
 import { designStore } from '../../lib/store/designStore';
 import { sceneStore } from '../../lib/store/sceneStore';
+import { directionFromPosition } from '../../lib/optics/coordinates';
 
 export class FlatView {
   public readonly container: HTMLElement;
@@ -188,6 +189,87 @@ export class FlatView {
 
     ctx.strokeStyle='#67e8f9'; ctx.lineWidth=2;
     ctx.strokeRect(this.panX+this.selected.col*this.scale,this.panY+this.selected.row*this.scale,this.scale,this.scale);
+    this.renderLightIndicators(ctx, design);
+    ctx.restore();
+  }
+
+  
+  private renderLightIndicators(ctx: CanvasRenderingContext2D, design: import('../../lib/decoders/types').DesignModel): void {
+    const cx = this.panX + design.width * this.scale * 0.5;
+    const cy = this.panY + design.height * this.scale * 0.5;
+    const orbitRadius = Math.max(design.width, design.height) * this.scale * 0.5 + 16;
+    if (orbitRadius < 25) return;
+
+    ctx.save();
+    // Faint orbit ring guide
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, orbitRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Cardinal tick marks
+    const cardinals = [
+      { label: 'E', az: 0 },
+      { label: 'N', az: 90 },
+      { label: 'W', az: 180 },
+      { label: 'S', az: 270 },
+    ];
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+    for (const card of cardinals) {
+      const rad = (card.az * Math.PI) / 180.0;
+      const tx = cx + (orbitRadius - 10) * Math.cos(rad);
+      const ty = cy - (orbitRadius - 10) * Math.sin(rad);
+      ctx.fillText(card.label, tx, ty);
+    }
+
+    // Helper to draw a light badge
+    const drawBadge = (azDeg: number, label: string, color: string, glowColor: string) => {
+      const rad = (azDeg * Math.PI) / 180.0;
+      const bx = cx + orbitRadius * Math.cos(rad);
+      const by = cy - orbitRadius * Math.sin(rad);
+
+      const innerX = cx + (orbitRadius - 8) * Math.cos(rad);
+      const innerY = cy - (orbitRadius - 8) * Math.sin(rad);
+      ctx.strokeStyle = glowColor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(innerX, innerY);
+      ctx.stroke();
+
+      ctx.fillStyle = glowColor;
+      ctx.beginPath();
+      ctx.arc(bx, by, 11, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(bx, by, 9, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#0e1117';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.fillText(label, bx, by + 0.5);
+    };
+
+    // Primary Light (L1 - Cyan)
+    const pLight = sceneStore.getPrimaryLight();
+    const pDir = directionFromPosition(pLight.pos);
+    drawBadge(pDir.azimuthDeg, 'L1', '#38bdf8', 'rgba(56, 189, 248, 0.25)');
+
+    // Secondary Fill Light (L2 - Amber, if enabled)
+    if (sceneStore.isSecondaryLightEnabled()) {
+      const sLight = sceneStore.getSecondaryLight();
+      const sDir = directionFromPosition(sLight.pos);
+      drawBadge(sDir.azimuthDeg, 'L2', '#fbbf24', 'rgba(251, 191, 36, 0.25)');
+    }
+
     ctx.restore();
   }
 

@@ -13,6 +13,7 @@ class SceneStore {
   private apertureRadiusMm = 2.0;
   private orientationDeg = 0.0;
   private quality: QualityLevel = 'balanced';
+  private diffractionOrders: 'both' | 'single' = 'both';
 
   private primaryLight: LightSettings = {
     pos: {
@@ -27,12 +28,12 @@ class SceneStore {
   private secondaryLightEnabled = false;
   private secondaryLight: LightSettings = {
     pos: {
-      x: 0.0,
-      y: -400.0 * Math.sin((35.0 * Math.PI) / 180.0), // ~-229.430573 mm
-      z: 400.0 * Math.cos((35.0 * Math.PI) / 180.0),  // ~327.660818 mm
+      x: 400.0 * Math.cos((55.0 * Math.PI) / 180.0), // ~229.430574 mm (azimuth 0° East, elevation 55°)
+      y: 0.0,
+      z: 400.0 * Math.sin((55.0 * Math.PI) / 180.0), // ~327.660818 mm
     },
     sourceRadiusMm: 20.0,
-    intensity: 0.3,
+    intensity: 0.8,
   };
 
   private isInteracting = false;
@@ -143,6 +144,16 @@ class SceneStore {
     return this.activeTab;
   }
 
+  public getDiffractionOrders(): 'both' | 'single' {
+    return this.diffractionOrders;
+  }
+
+  public setDiffractionOrders(orders: 'both' | 'single'): void {
+    if (this.diffractionOrders === orders) return;
+    this.diffractionOrders = orders;
+    this.notify();
+  }
+
   public setActiveTab(tab: 'periods' | 'angles' | 'source' | 'analytics'): void {
     this.activeTab = tab;
     this.notify();
@@ -160,6 +171,7 @@ class SceneStore {
       lights,
       quality: this.quality,
       downsampleFactor: this.isInteracting ? 0.5 : 1.0,
+      diffractionOrders: this.diffractionOrders,
     };
   }
 }

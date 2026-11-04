@@ -36,3 +36,6 @@ _OUTPUT/
 
 # Local diagnostic logs
 *.log
+
+# Scratch directory
+scratch/

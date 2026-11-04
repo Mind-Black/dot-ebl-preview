@@ -15,7 +15,7 @@ import type { InterpretationFormat } from '../../lib/decoders/types';
 
 
 
-import { SAMPLE_PRESETS } from '../../lib/presets/sampleDesigns';
+import { SAMPLE_PRESETS, createShowcaseHologram } from '../../lib/presets/sampleDesigns';
 
 import { designStore } from '../../lib/store/designStore';
 
@@ -676,6 +676,16 @@ export class DesignControls {
     const sampleRow = document.createElement('div');
 
     sampleRow.className = 'grid grid-cols-2 gap-2';
+
+    const showcaseBtn = document.createElement('button');
+    showcaseBtn.className = 'btn btn-xs btn-outline btn-showcase-select';
+    showcaseBtn.style.gridColumn = '1 / -1';
+    showcaseBtn.textContent = '✨ Default Showcase (256×256)';
+    showcaseBtn.onclick = () => {
+      const design = createShowcaseHologram(256);
+      designStore.setPhysicalDesign(design);
+    };
+    sampleRow.appendChild(showcaseBtn);
 
 
 
