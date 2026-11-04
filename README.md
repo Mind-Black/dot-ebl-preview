@@ -423,3 +423,5 @@ Open **Exports & Data Artifacts / EBL Lithography Fabrication** to select layer,
 Image imports default to RGBA continuous, treating RGB sources as opaque. Image parsing, filtering, and statistics run in a worker. NPZ imports retain fabrication settings and artifact metadata. Stored paths and placed exposures are shown separately. Physical instrument qualification remains separate from software validation.
 
 From `web`, run `npm run check`, `npm test`, `npm run test:browser`, and `npm run build`. The Chromium 1075 by 1075 filtered-cell benchmark measured 1.73 seconds decoding and 0.79 seconds validation/export, with 69.3 MB GDS output. These are development-machine observations rather than guarantees.
+
+The published `deployment.json` records the Git commit included in the Pages build.
