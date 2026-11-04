@@ -25,6 +25,16 @@ export default defineConfig({
         },
       },
     },
+    // Edge's native ANGLE backend exposed multi-light errors hidden by SwiftShader.
+    ...(process.platform === 'win32' ? [{
+      name: 'edge-optics',
+      testMatch: /(?:multi_light|optics_shader_readback)\.spec\.ts/,
+      use: {
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
+        launchOptions: { args: ['--enable-webgl'] },
+      },
+    }] : []),
   ],
   webServer: {
     command: production ? `node scripts/serve-production.mjs ${port}` : `npm run dev -- --host 127.0.0.1 --port ${port}`,
