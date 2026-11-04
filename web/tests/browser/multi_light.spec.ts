@@ -137,3 +137,66 @@ for (const quality of ['high', 'balanced', 'performance'] as const) for (const s
     expect(results[12].rgb).toEqual(results[8].rgb);
   });
 }
+
+test('flat controls and auto sweep preserve secondary settings', async ({ page }) => {
+  await page.goto('./?showcase=1');
+  await page.getByText('Secondary Fill Light', { exact: true }).click();
+  const snapshot = () => page.evaluate(() => (window as any).__DOT_EBL_MODULES__.sceneStore.getSecondaryLight());
+  const initial = await snapshot();
+  const azimuth = page.getByRole('slider', { name: 'Light Azimuth ° slider', exact: true });
+  await azimuth.dispatchEvent('pointerdown');
+  await azimuth.fill('175');
+  await azimuth.dispatchEvent('input');
+  expect(await snapshot()).toEqual(initial);
+  await azimuth.dispatchEvent('pointerup');
+  const primaryPosition = () => page.evaluate(() => (window as any).__DOT_EBL_MODULES__.sceneStore.getPrimaryLight().pos);
+  const before = await primaryPosition();
+  await page.locator('#btn-sweep-azimuth').click();
+  await expect.poll(primaryPosition).not.toEqual(before);
+  expect(await snapshot()).toEqual(initial);
+  await page.locator('#btn-sweep-azimuth').click();
+  expect(await snapshot()).toEqual(initial);
+  await expect(page.getByRole('button', { name: '3D Perspective', exact: true })).toBeDisabled();
+});
+
+test('showcase at equal 135 and 45 degree illumination has a symmetric spectral annulus', async ({ page }) => {
+  await page.goto('./?showcase=1');
+  await page.getByText('Secondary Fill Light', { exact: true }).click();
+  await page.getByRole('spinbutton', { name: 'Light Azimuth ° numeric value', exact: true }).fill('135');
+  await page.getByRole('spinbutton', { name: 'Fill Light Azimuth ° numeric value', exact: true }).fill('45');
+  await page.getByRole('spinbutton', { name: 'Fill Intensity  numeric value', exact: true }).fill('1');
+  const result = await page.evaluate(() => {
+    const { WebGlDiffractionRenderer, designStore, sceneStore } = (window as any).__DOT_EBL_MODULES__;
+    const canvas = document.createElement('canvas');
+    const renderer = new WebGlDiffractionRenderer(canvas);
+    const design = designStore.getDesign();
+    const params = sceneStore.getRenderParams();
+    const render = (lights: any[]) => {
+      renderer.render(design, { ...params, lights }, canvas);
+      const raw = new Uint8Array(256 * 256 * 4);
+      renderer.gl.readPixels(0, 0, 256, 256, renderer.gl.RGBA, renderer.gl.UNSIGNED_BYTE, raw);
+      return raw;
+    };
+    const combined = render(params.lights);
+    const swapped = render([...params.lights].reverse());
+    const a = render([params.lights[0]]), b = render([params.lights[1]]);
+    let slotError = 0, annulusError = 0, singleMirrorError = 0;
+    for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+      const r = Math.hypot(x - 127.5, y - 127.5);
+      for (let c = 0; c < 3; c++) {
+        const i = (y * 256 + x) * 4 + c;
+        const mirror = (y * 256 + 255 - x) * 4 + c;
+        slotError = Math.max(slotError, Math.abs(combined[i] - swapped[i]));
+        if (r >= 52 && r < 74) {
+          annulusError = Math.max(annulusError, Math.abs(combined[i] - combined[mirror]));
+          singleMirrorError = Math.max(singleMirrorError, Math.abs(a[i] - b[mirror]));
+        }
+      }
+    }
+    renderer.dispose();
+    return { slotError, annulusError, singleMirrorError };
+  });
+  expect(result.slotError).toBeLessThanOrEqual(1);
+  expect(result.singleMirrorError).toBeLessThanOrEqual(1);
+  expect(result.annulusError).toBeLessThanOrEqual(1);
+});

@@ -1,13 +1,11 @@
 import { importDesign } from '../importDesign';
 /**
- * Welcome landing view featuring a prominent drag-and-drop upload zone
- * and one-click procedural sample preset cards.
+ * Welcome landing view featuring a prominent drag-and-drop upload zone,
+ * default 256x256 showcase launcher, and one-click procedural sample preset cards.
  */
 
-import { SAMPLE_PRESETS } from '../../lib/presets/sampleDesigns';
+import { SAMPLE_PRESETS, createShowcaseHologram } from '../../lib/presets/sampleDesigns';
 import { designStore } from '../../lib/store/designStore';
-
-
 
 export class WelcomeView {
   public readonly element: HTMLElement;
@@ -26,8 +24,13 @@ export class WelcomeView {
         <h1 class="hero-title">Interactive Diffraction Optics & Physical Parameter Inspector</h1>
         <p class="hero-subtitle">
           Inspect micro-grating periods, orientations, and qualitative diffraction optical behavior directly in the browser.
-          Upload design images, inspect parameter distributions, or explore test benchmarks below.
+          Upload design images, inspect parameter distributions, or explore the showcase hologram below.
         </p>
+        <div class="hero-showcase-bar">
+          <button class="btn btn-primary btn-showcase-hero" id="welcome-showcase-btn">
+            ✨ Launch Default Showcase Hologram (256×256)
+          </button>
+        </div>
       </div>
 
       <div class="welcome-actions-grid">
@@ -86,6 +89,14 @@ export class WelcomeView {
   private setupEvents(): void {
     const dropzone = this.element.querySelector('#welcome-dropzone') as HTMLElement;
     const browseBtn = this.element.querySelector('#welcome-browse-btn') as HTMLButtonElement;
+    const showcaseBtn = this.element.querySelector('#welcome-showcase-btn') as HTMLButtonElement | null;
+
+    if (showcaseBtn) {
+      showcaseBtn.onclick = () => {
+        designStore.setPhysicalDesign(createShowcaseHologram(256));
+        this.onReadyCallback();
+      };
+    }
 
     browseBtn.onclick = () => this.fileInput.click();
 

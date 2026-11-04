@@ -13,6 +13,14 @@ export class SceneControls {
   private primaryDistControl: SliderControl;
   private primaryRadiusControl: SliderControl;
   private primaryIntensityControl: SliderControl;
+  private sweepBtn: HTMLButtonElement;
+  private isSweeping = false;
+  private btnBothOrders!: HTMLButtonElement;
+  private btnSingleOrder!: HTMLButtonElement;
+  private sweepRafId: number | null = null;
+  private lastSweepTime = 0;
+  private sweepSpeedDegPerSec = 36.0;
+
   private secLightCheck: HTMLInputElement;
   private secLightFields: HTMLElement;
   private secAzControl: SliderControl;
@@ -69,6 +77,24 @@ export class SceneControls {
       presetRow.appendChild(btn);
     }
     primaryGroup.appendChild(presetRow);
+
+    // Auto-Sweep Azimuth Toggle
+    const sweepRow = document.createElement('div');
+    sweepRow.className = 'sweep-control-row mb-3';
+
+    this.sweepBtn = document.createElement('button');
+    this.sweepBtn.className = 'btn btn-xs btn-outline btn-sweep-toggle w-full';
+    this.sweepBtn.id = 'btn-sweep-azimuth';
+    this.sweepBtn.setAttribute('aria-label', 'Toggle auto sweep azimuth');
+    this.sweepBtn.innerHTML = `
+      <svg class="sweep-icon mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      <span>Auto Sweep Azimuth</span>
+    `;
+    this.sweepBtn.onclick = () => this.toggleSweep();
+    sweepRow.appendChild(this.sweepBtn);
+    primaryGroup.appendChild(sweepRow);
 
     this.primaryAzControl = createSliderControl({
       label: 'Light Azimuth',
@@ -151,10 +177,12 @@ export class SceneControls {
     this.secLightCheck = document.createElement('input');
     this.secLightCheck.type = 'checkbox';
     this.secLightCheck.checked = sceneStore.isSecondaryLightEnabled();
-    this.secLightCheck.onchange = () => {
+    const handleSecLightToggle = () => {
       sceneStore.setSecondaryLightEnabled(this.secLightCheck.checked);
       this.secLightFields.classList.toggle('hidden', !this.secLightCheck.checked);
     };
+    this.secLightCheck.onchange = handleSecLightToggle;
+    this.secLightCheck.oninput = handleSecLightToggle;
 
     const secTitle = document.createElement('span');
     secTitle.className = 'subgroup-title';
@@ -171,7 +199,7 @@ export class SceneControls {
       min: 0,
       max: 360,
       step: 0.5,
-      initialVal: 270,
+      initialVal: 0,
       unit: '°',
       decimals: 1,
       onChange: () => this.updateSecondarySpherical(),
@@ -183,7 +211,7 @@ export class SceneControls {
       min: 1,
       max: 89,
       step: 0.5,
-      initialVal: 35,
+      initialVal: 55,
       unit: '°',
       decimals: 1,
       onChange: () => this.updateSecondarySpherical(),
@@ -221,14 +249,35 @@ export class SceneControls {
       max: 5,
       numberMax: 10,
       step: 0.05,
-      initialVal: 0.3,
+      initialVal: 0.8,
       unit: '',
       decimals: 2,
       onChange: (v) => sceneStore.setSecondaryLight({ intensity: v }),
       onInteractingChange,
     });
 
+    
+    const secPresetsRow = document.createElement('div');
+    secPresetsRow.className = 'btn-group w-full mb-3';
+    const secPresets = [
+      { label: '0° East (Orthogonal)', az: 0 },
+      { label: '45° Cross', az: 45 },
+      { label: '270° South', az: 270 },
+      { label: '180° West', az: 180 },
+    ];
+    for (const p of secPresets) {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-xs btn-outline';
+      btn.textContent = p.label;
+      btn.onclick = () => {
+        this.secAzControl.setValue(p.az);
+        this.updateSecondarySpherical();
+      };
+      secPresetsRow.appendChild(btn);
+    }
+
     this.secLightFields.append(
+      secPresetsRow,
       this.secAzControl.container,
       this.secElControl.container,
       this.secDistControl.container,
@@ -237,6 +286,46 @@ export class SceneControls {
     );
     secGroup.appendChild(this.secLightFields);
     this.element.appendChild(secGroup);
+
+    
+    // Diffraction Orders Mode (Physical ±1 vs Single +1)
+    const orderGroup = document.createElement('div');
+    orderGroup.className = 'control-subgroup';
+
+    const orderHeader = document.createElement('h3');
+    orderHeader.className = 'subgroup-title';
+    orderHeader.textContent = 'Diffraction Orders (Micro-Gratings)';
+    orderGroup.appendChild(orderHeader);
+
+    const orderHint = document.createElement('p');
+    orderHint.className = 'text-xs text-muted mb-2';
+    orderHint.textContent = 'Physical symmetric gratings emit twin conjugate orders (±1). Use "+1 Order Only" to isolate a single highlight per light.';
+    orderGroup.appendChild(orderHint);
+
+    const orderBtnGroup = document.createElement('div');
+    orderBtnGroup.className = 'btn-group w-full';
+
+    this.btnBothOrders = document.createElement('button');
+    this.btnBothOrders.className = 'btn btn-xs btn-active';
+    this.btnBothOrders.textContent = 'Physical (±1 Orders)';
+    this.btnBothOrders.onclick = () => {
+      sceneStore.setDiffractionOrders('both');
+      this.btnBothOrders.className = 'btn btn-xs btn-active';
+      this.btnSingleOrder.className = 'btn btn-xs btn-outline';
+    };
+
+    this.btnSingleOrder = document.createElement('button');
+    this.btnSingleOrder.className = 'btn btn-xs btn-outline';
+    this.btnSingleOrder.textContent = 'Single (+1 Order Only)';
+    this.btnSingleOrder.onclick = () => {
+      sceneStore.setDiffractionOrders('single');
+      this.btnSingleOrder.className = 'btn btn-xs btn-active';
+      this.btnBothOrders.className = 'btn btn-xs btn-outline';
+    };
+
+    orderBtnGroup.append(this.btnBothOrders, this.btnSingleOrder);
+    orderGroup.appendChild(orderBtnGroup);
+    this.element.appendChild(orderGroup);
 
     // Physical observer
     const obsGroup = document.createElement('div');
@@ -339,6 +428,70 @@ export class SceneControls {
     this.syncFromStore();
   }
 
+  public isAzimuthSweeping(): boolean {
+    return this.isSweeping;
+  }
+
+  public toggleSweep(): void {
+    if (this.isSweeping) {
+      this.stopSweep();
+    } else {
+      this.startSweep();
+    }
+  }
+
+  public startSweep(): void {
+    if (this.isSweeping) return;
+    this.isSweeping = true;
+    this.sweepBtn.classList.add('btn-active');
+    this.sweepBtn.innerHTML = `
+      <svg class="sweep-icon mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="6" y="4" width="4" height="16"/>
+        <rect x="14" y="4" width="4" height="16"/>
+      </svg>
+      <span>Pause Sweep</span>
+    `;
+    this.lastSweepTime = performance.now();
+
+    const sweepStep = (timestamp: number) => {
+      if (!this.isSweeping) return;
+      const dt = Math.min((timestamp - this.lastSweepTime) / 1000.0, 0.1);
+      this.lastSweepTime = timestamp;
+
+      if (!this.isDraggingSlider) {
+        const currentAz = this.primaryAzControl.getValue();
+        let nextAz = (currentAz + this.sweepSpeedDegPerSec * dt) % 360.0;
+        if (nextAz < 0) nextAz += 360.0;
+
+        this.primaryAzControl.setValue(nextAz);
+
+        const currentEl = Math.max(1, Math.min(89, this.primaryElControl.getValue()));
+        const currentDist = Math.max(1, this.primaryDistControl.getValue());
+        const pos = positionFromDirection(nextAz, currentEl, currentDist);
+        sceneStore.setPrimaryLight({ pos });
+      }
+
+      this.sweepRafId = requestAnimationFrame(sweepStep);
+    };
+
+    this.sweepRafId = requestAnimationFrame(sweepStep);
+  }
+
+  public stopSweep(): void {
+    this.isSweeping = false;
+    if (this.sweepRafId !== null) {
+      cancelAnimationFrame(this.sweepRafId);
+      this.sweepRafId = null;
+    }
+    this.sweepBtn.classList.remove('btn-active');
+    this.sweepBtn.innerHTML = `
+      <svg class="sweep-icon mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      <span>Auto Sweep Azimuth</span>
+    `;
+  }
+
   private updatePrimarySpherical(): void {
     const az = this.primaryAzControl.getValue();
     const el = Math.max(1, Math.min(89, this.primaryElControl.getValue()));
@@ -386,8 +539,6 @@ export class SceneControls {
 
     const cam = sceneStore.getCameraPos();
     const camDir = directionFromPosition(cam);
-    // An elevation above 90 deg is the same point as the mirrored angle on the opposite azimuth;
-    // keep the slider values if they still describe the stored camera position.
     const sliderEl = this.camElControl.getValue();
     const sliderPos = positionFromDirection(
       this.camAzControl.getValue(),
@@ -404,11 +555,15 @@ export class SceneControls {
       this.camDistControl.setValue(camDir.distanceMm);
     }
     this.camApertureControl.setValue(sceneStore.getApertureRadiusMm());
+    if (this.btnBothOrders && this.btnSingleOrder) {
+      const orders = sceneStore.getDiffractionOrders();
+      this.btnBothOrders.className = `btn btn-xs ${orders === 'both' ? 'btn-active' : 'btn-outline'}`;
+      this.btnSingleOrder.className = `btn btn-xs ${orders === 'single' ? 'btn-active' : 'btn-outline'}`;
+    }
   }
 
   private setupSubscriptions(): void {
     sceneStore.subscribe(() => {
-      // Keep UI in sync unless user is actively dragging one of these sliders
       if (!this.isDraggingSlider) {
         this.syncFromStore();
       }

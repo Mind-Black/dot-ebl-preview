@@ -20,8 +20,8 @@ export interface RenderSceneParams {
   orientationDeg: number;
   lights: LightSettings[];
   quality: QualityLevel;
-  diffractionOrders?: 'both' | 'single';
   downsampleFactor?: number; // 1.0 for full quality, 0.5 during active drag
+  diffractionOrders?: 'both' | 'single';
 }
 
 export class WebGlDiffractionRenderer {
@@ -39,6 +39,9 @@ export class WebGlDiffractionRenderer {
   private currentTargetWidth = 0;
   private currentTargetHeight = 0;
   private currentQuality: QualityLevel = 'balanced';
+  private lightPosArray = new Float32Array(8 * 3);
+  private lightSizesArray = new Float32Array(8);
+  private lightIntensitiesArray = new Float32Array(8);
 
   constructor(canvasOrGl?: HTMLCanvasElement | OffscreenCanvas | WebGL2RenderingContext) {
     if (canvasOrGl instanceof WebGL2RenderingContext) {
@@ -132,6 +135,12 @@ export class WebGlDiffractionRenderer {
     ];
     for (const name of names) {
       this.uniformLocations[name] = gl.getUniformLocation(this.program, name);
+    }
+    const arrayNames = ['u_light_pos', 'u_source_size_mm', 'u_light_intensity'];
+    for (const name of arrayNames) {
+      let loc = gl.getUniformLocation(this.program, name);
+      if (!loc) loc = gl.getUniformLocation(this.program, `${name}[0]`);
+      this.uniformLocations[name] = loc;
     }
     for (let i = 0; i < 8; i++) {
       this.uniformLocations[`u_light_pos_${i}`] = gl.getUniformLocation(this.program, `u_light_pos[${i}]`);
@@ -299,12 +308,35 @@ export class WebGlDiffractionRenderer {
     gl.uniform1i(this.uniformLocations['u_num_bands'], specConfig.numBands);
     gl.uniform1f(this.uniformLocations['u_start_wavelength_nm'], 380.0);
     gl.uniform1f(this.uniformLocations['u_wavelength_step_nm'], specConfig.wavelengthStepNm);
-
-    gl.uniform1i(this.uniformLocations['u_diffraction_orders'], params.diffractionOrders === 'single' ? 1 : 0);
+    gl.uniform1i(
+      this.uniformLocations['u_diffraction_orders'],
+      params.diffractionOrders === 'single' ? 1 : 0
+    );
 
     // Light uniforms
     const numLights = Math.min(8, params.lights.length);
     gl.uniform1i(this.uniformLocations['u_num_lights'], numLights);
+
+    this.lightPosArray.fill(0);
+    this.lightSizesArray.fill(0);
+    this.lightIntensitiesArray.fill(0);
+
+    for (let i = 0; i < numLights; i++) {
+      const l = params.lights[i];
+      this.lightPosArray[i * 3 + 0] = l.pos.x;
+      this.lightPosArray[i * 3 + 1] = l.pos.y;
+      this.lightPosArray[i * 3 + 2] = l.pos.z;
+      this.lightSizesArray[i] = l.sourceRadiusMm;
+      this.lightIntensitiesArray[i] = l.intensity;
+    }
+
+    const locPos = this.uniformLocations['u_light_pos'] ?? this.uniformLocations['u_light_pos_0'];
+    const locSizes = this.uniformLocations['u_source_size_mm'] ?? this.uniformLocations['u_source_size_mm_0'];
+    const locIntensities = this.uniformLocations['u_light_intensity'] ?? this.uniformLocations['u_light_intensity_0'];
+
+    if (locPos) gl.uniform3fv(locPos, this.lightPosArray);
+    if (locSizes) gl.uniform1fv(locSizes, this.lightSizesArray);
+    if (locIntensities) gl.uniform1fv(locIntensities, this.lightIntensitiesArray);
 
     for (let i = 0; i < numLights; i++) {
       const l = params.lights[i];
