@@ -20,6 +20,7 @@ export interface RenderSceneParams {
   orientationDeg: number;
   lights: LightSettings[];
   quality: QualityLevel;
+  diffractionOrders?: 'both' | 'single';
   downsampleFactor?: number; // 1.0 for full quality, 0.5 during active drag
 }
 
@@ -127,6 +128,7 @@ export class WebGlDiffractionRenderer {
       'u_num_bands',
       'u_start_wavelength_nm',
       'u_wavelength_step_nm',
+      'u_diffraction_orders',
     ];
     for (const name of names) {
       this.uniformLocations[name] = gl.getUniformLocation(this.program, name);
@@ -297,6 +299,8 @@ export class WebGlDiffractionRenderer {
     gl.uniform1i(this.uniformLocations['u_num_bands'], specConfig.numBands);
     gl.uniform1f(this.uniformLocations['u_start_wavelength_nm'], 380.0);
     gl.uniform1f(this.uniformLocations['u_wavelength_step_nm'], specConfig.wavelengthStepNm);
+
+    gl.uniform1i(this.uniformLocations['u_diffraction_orders'], params.diffractionOrders === 'single' ? 1 : 0);
 
     // Light uniforms
     const numLights = Math.min(8, params.lights.length);

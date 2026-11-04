@@ -42,6 +42,7 @@ uniform vec2 u_white_xy;
 uniform int u_num_bands;
 uniform float u_start_wavelength_nm;
 uniform float u_wavelength_step_nm;
+uniform int u_diffraction_orders;
 
 out vec4 pixel_color;
 
@@ -108,6 +109,47 @@ vec3 to_srgb(vec3 linear_rgb) {
     return clamp(mix(low, high, greaterThan(linear_rgb, vec3(0.0031308))), 0.0, 1.0);
 }
 
+vec3 light_contribution(vec3 light_pos, float source_size_mm, float intensity,
+                        vec3 world_pos, vec3 camera, float detector_radius,
+                        vec2 grating_vector, float period_nm) {
+    if (intensity <= 0.0) return vec3(0.0);
+
+    vec3 light_vector = light_pos - world_pos;
+    float light_length = length(light_vector);
+    if (light_length < 1.0e-9) return vec3(0.0);
+    vec3 light = light_vector / light_length;
+    float cos_inc = max(0.0, light.z);
+    if (cos_inc <= 0.0) return vec3(0.0);
+
+    float source_radius = max(0.0, source_size_mm) / light_length;
+    // Accumulate each source independently; mix physical XYZ before display mapping.
+    vec3 light_xyz = vec3(0.0);
+
+    for (int index = 0; index < u_num_bands; ++index) {
+        float wavelength_nm = u_start_wavelength_nm + u_wavelength_step_nm * float(index);
+        float sigma_diff = 0.5 * wavelength_nm / (u_pitch_mm * 1.0e6);
+        float sigma_beam_sq = sigma_diff * sigma_diff + 0.25 * source_radius * source_radius;
+        float sigma_sq = sigma_beam_sq + 0.25 * detector_radius * detector_radius;
+        if (sigma_sq <= 0.0) continue;
+        float ratio_sq = (detector_radius * detector_radius) / max(1.0e-12, sigma_beam_sq);
+        float aligned_fraction = 1.0 - exp(-0.5 * ratio_sq);
+        vec3 spectrum = texelFetch(u_spectrum, ivec2(index, 0), 0).rgb;
+
+        int start_order = (u_diffraction_orders == 1) ? 1 : -1;
+        for (int order = start_order; order <= 1; order += 2) {
+            vec2 alpha_xy = -light.xy + float(order) * (wavelength_nm / period_nm) * grating_vector;
+            float alpha12 = dot(alpha_xy, alpha_xy);
+            if (alpha12 > 1.0) continue;
+            float alpha_z = sqrt(max(0.0, 1.0 - alpha12));
+            vec3 alpha = vec3(alpha_xy, alpha_z);
+            float theta = acos(clamp(dot(alpha, camera), -1.0, 1.0));
+            float angular_weight = aligned_fraction * exp(-0.5 * theta * theta / sigma_sq);
+            light_xyz += spectrum * (intensity * cos_inc * alpha_z * angular_weight);
+        }
+    }
+    return light_xyz;
+}
+
 void main() {
     float scale = min(float(u_target_size.x) / float(u_size.x), float(u_target_size.y) / float(u_size.y));
     vec2 image_span = vec2(u_size) * scale;
@@ -150,41 +192,23 @@ void main() {
     float detector_radius = max(0.0, u_aperture_mm) / camera_length;
     vec3 xyz = vec3(0.0);
 
-    for (int l = 0; l < u_num_lights && l < MAX_LIGHTS; ++l) {
-        float intensity = u_light_intensity[l];
-        if (intensity <= 0.0) continue;
-
-        vec3 light_vector = u_light_pos[l] - world_pos;
-        float light_length = length(light_vector);
-        if (light_length < 1.0e-9) continue;
-        vec3 light = light_vector / light_length;
-        float cos_inc = max(0.0, light.z);
-        if (cos_inc <= 0.0) continue;
-
-        float source_radius = max(0.0, u_source_size_mm[l]) / light_length;
-
-        for (int index = 0; index < u_num_bands; ++index) {
-            float wavelength_nm = u_start_wavelength_nm + u_wavelength_step_nm * float(index);
-            float sigma_diff = 0.5 * wavelength_nm / (u_pitch_mm * 1.0e6);
-            float sigma_beam_sq = sigma_diff * sigma_diff + 0.25 * source_radius * source_radius;
-            float sigma_sq = sigma_beam_sq + 0.25 * detector_radius * detector_radius;
-            if (sigma_sq <= 0.0) continue;
-            float ratio_sq = (detector_radius * detector_radius) / max(1.0e-12, sigma_beam_sq);
-            float aligned_fraction = 1.0 - exp(-0.5 * ratio_sq);
-            vec3 spectrum = texelFetch(u_spectrum, ivec2(index, 0), 0).rgb;
-
-            for (int order = -1; order <= 1; order += 2) {
-                vec2 alpha_xy = -light.xy + float(order) * (wavelength_nm / period_nm) * grating_vector;
-                float alpha12 = dot(alpha_xy, alpha_xy);
-                if (alpha12 > 1.0) continue;
-                float alpha_z = sqrt(max(0.0, 1.0 - alpha12));
-                vec3 alpha = vec3(alpha_xy, alpha_z);
-                float theta = acos(clamp(dot(alpha, camera), -1.0, 1.0));
-                float angular_weight = aligned_fraction * exp(-0.5 * theta * theta / sigma_sq);
-                xyz += spectrum * (intensity * cos_inc * alpha_z * angular_weight);
-            }
-        }
-    }
+    // Constant array indices avoid driver-dependent dynamic indexing in nested loops.
+    if (u_num_lights > 0) xyz += light_contribution(u_light_pos[0], u_source_size_mm[0], u_light_intensity[0],
+        world_pos, camera, detector_radius, grating_vector, period_nm);
+    if (u_num_lights > 1) xyz += light_contribution(u_light_pos[1], u_source_size_mm[1], u_light_intensity[1],
+        world_pos, camera, detector_radius, grating_vector, period_nm);
+    if (u_num_lights > 2) xyz += light_contribution(u_light_pos[2], u_source_size_mm[2], u_light_intensity[2],
+        world_pos, camera, detector_radius, grating_vector, period_nm);
+    if (u_num_lights > 3) xyz += light_contribution(u_light_pos[3], u_source_size_mm[3], u_light_intensity[3],
+        world_pos, camera, detector_radius, grating_vector, period_nm);
+    if (u_num_lights > 4) xyz += light_contribution(u_light_pos[4], u_source_size_mm[4], u_light_intensity[4],
+        world_pos, camera, detector_radius, grating_vector, period_nm);
+    if (u_num_lights > 5) xyz += light_contribution(u_light_pos[5], u_source_size_mm[5], u_light_intensity[5],
+        world_pos, camera, detector_radius, grating_vector, period_nm);
+    if (u_num_lights > 6) xyz += light_contribution(u_light_pos[6], u_source_size_mm[6], u_light_intensity[6],
+        world_pos, camera, detector_radius, grating_vector, period_nm);
+    if (u_num_lights > 7) xyz += light_contribution(u_light_pos[7], u_source_size_mm[7], u_light_intensity[7],
+        world_pos, camera, detector_radius, grating_vector, period_nm);
 
     xyz /= u_light_y;
     if (xyz.x + xyz.y + xyz.z < 1.0e-9) {
