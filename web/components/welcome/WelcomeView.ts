@@ -27,7 +27,7 @@ export class WelcomeView {
           Upload design images, inspect parameter distributions, or explore the showcase hologram below.
         </p>
         <div class="hero-showcase-bar">
-          <button class="btn btn-primary btn-showcase-hero" id="welcome-showcase-btn">
+          <button type="button" class="btn btn-primary btn-showcase-hero" id="welcome-showcase-btn">
             ✨ Launch Default Showcase Hologram (256×256)
           </button>
         </div>
@@ -35,14 +35,14 @@ export class WelcomeView {
 
       <div class="welcome-actions-grid">
         <div class="upload-dropzone" id="welcome-dropzone">
-          <svg class="dropzone-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <svg class="dropzone-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
             <line x1="12" y1="3" x2="12" y2="15"/>
           </svg>
           <div class="dropzone-title">Drop Design Image or .npz Archive</div>
-          <div class="dropzone-desc">Supports RGB8 / RGB16 PNGs, Python design.npz, BMP, JPEG, WebP</div>
-          <button class="btn btn-primary mt-3" id="welcome-browse-btn">Browse Local Files</button>
+          <div class="dropzone-desc">Supports RGBA continuous, RGB8 / RGB16 PNGs, Python design.npz, BMP, JPEG, WebP</div>
+          <button type="button" class="btn btn-primary mt-3" id="welcome-browse-btn">Browse Local Files</button>
         </div>
 
         <div class="presets-container">
@@ -72,6 +72,7 @@ export class WelcomeView {
 
     for (const preset of SAMPLE_PRESETS) {
       const card = document.createElement('button');
+      card.type = 'button';
       card.className = 'preset-card';
       card.innerHTML = `
         <div class="preset-card-title">${preset.title}</div>
@@ -100,6 +101,12 @@ export class WelcomeView {
 
     browseBtn.onclick = () => this.fileInput.click();
 
+    dropzone.addEventListener('click', (e) => {
+      if (e.target !== browseBtn && !browseBtn.contains(e.target as Node)) {
+        this.fileInput.click();
+      }
+    });
+
     this.fileInput.onchange = (e) => {
       const files = (e.target as HTMLInputElement).files;
       if (files && files.length > 0) {
@@ -107,17 +114,28 @@ export class WelcomeView {
       }
     };
 
+    let dragDepth = 0;
+    dropzone.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      dragDepth++;
+      dropzone.classList.add('drag-over');
+    });
+
     dropzone.addEventListener('dragover', (e) => {
       e.preventDefault();
       dropzone.classList.add('drag-over');
     });
 
     dropzone.addEventListener('dragleave', () => {
-      dropzone.classList.remove('drag-over');
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) {
+        dropzone.classList.remove('drag-over');
+      }
     });
 
     dropzone.addEventListener('drop', (e) => {
       e.preventDefault();
+      dragDepth = 0;
       dropzone.classList.remove('drag-over');
       if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
         this.handleFile(e.dataTransfer.files[0]);

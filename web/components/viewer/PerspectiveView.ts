@@ -53,7 +53,13 @@ export class PerspectiveView {
   private onHoverCallback?: (info: HoverCellInfo | null) => void;
   private animFrameId: number | null = null;
   private needsRender = true;
+  private meshDirty = true;
+  private textureDirty = true;
   private cleanups: (()=>void)[] = [];
+
+  private isVisible(): boolean {
+    return this.container.offsetParent !== null && this.container.clientWidth > 0 && this.container.clientHeight > 0;
+  }
 
   constructor(onHover?: (info: HoverCellInfo | null) => void) {
     this.onHoverCallback = onHover;
@@ -95,19 +101,27 @@ export class PerspectiveView {
 
     this.setupInteractions();
     this.setupSubscriptions();
-    this.startRenderLoop();
   }
 
   private setupSubscriptions(): void {
     this.cleanups.push(designStore.subscribe(() => {
-      this.updateMeshGeometry();
+      this.meshDirty = true;
+      this.textureDirty = true;
       this.needsRender = true;
+      if (this.isVisible()) {
+        this.updateMeshGeometry(false);
+        this.requestRender();
+      }
     }));
 
     this.cleanups.push(sceneStore.subscribe(() => {
       const camPos = sceneStore.getCameraPos();
       this.updateCameraTransform(camPos);
+      this.textureDirty = true;
       this.needsRender = true;
+      if (this.isVisible()) {
+        this.requestRender();
+      }
     }));
 
     // Resize observer
@@ -142,15 +156,22 @@ export class PerspectiveView {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
     this.needsRender = true;
+    this.requestRender();
   }
 
-  private updateMeshGeometry(): void {
+  private updateMeshGeometry(renderNow = true): void {
     const design = designStore.getDesign();
     if (!design) {
       if (this.planeMesh) {
         this.scene.remove(this.planeMesh);
+        if (this.planeMesh.geometry) this.planeMesh.geometry.dispose();
         this.planeMesh = null;
       }
+      if (this.planeMaterial) {
+        this.planeMaterial.dispose();
+        this.planeMaterial = null;
+      }
+      this.meshDirty = false;
       return;
     }
 
@@ -162,6 +183,10 @@ export class PerspectiveView {
       if (this.planeMesh.geometry) this.planeMesh.geometry.dispose();
       this.planeMesh = null;
     }
+    if (this.planeMaterial) {
+      this.planeMaterial.dispose();
+      this.planeMaterial = null;
+    }
 
     const geometry = new THREE.PlaneGeometry(widthMm, heightMm);
     this.planeMaterial = new THREE.MeshBasicMaterial({
@@ -171,9 +196,13 @@ export class PerspectiveView {
     this.planeMesh = new THREE.Mesh(geometry, this.planeMaterial);
     this.planeMesh.position.set(0, 0, 0);
     this.scene.add(this.planeMesh);
+    this.meshDirty = false;
 
     // Initial texture allocation and view framing
-    this.renderDiffractionTexture();
+    if (renderNow && this.isVisible()) {
+      this.renderDiffractionTexture();
+      this.textureDirty = false;
+    }
     this.fitView();
   }
 
@@ -310,11 +339,13 @@ export class PerspectiveView {
           // ignore
         }
         this.needsRender = true;
+        this.requestRender();
       }
     };
 
     canvas.addEventListener('pointerup', endDrag);
     canvas.addEventListener('pointercancel', endDrag);
+    canvas.addEventListener('pointerleave', () => this.onHoverCallback?.(null));
 
     canvas.addEventListener(
       'wheel',
@@ -397,33 +428,66 @@ export class PerspectiveView {
     this.camera.fov = Math.max(0.05, Math.min(100, requiredFov));
     this.camera.updateProjectionMatrix();
     this.needsRender = true;
+    this.requestRender();
   }
 
   public captureSnapshot(): string {
+    const design = designStore.getDesign();
+    if (!design) return '';
+    if (this.meshDirty) {
+      this.updateMeshGeometry(false);
+    }
+    if (this.container.clientWidth <= 0 || this.container.clientHeight <= 0) {
+      const capSize = Math.max(512, Math.min(1024, Math.max(design.width, design.height)));
+      this.camera.aspect = 1;
+      this.renderer.setSize(capSize, capSize, false);
+      this.fitView();
+    }
+    this.updateCameraTransform(sceneStore.getCameraPos());
     this.renderDiffractionTexture();
+    this.textureDirty = false;
     this.renderer.render(this.scene, this.camera);
     return this.canvas.toDataURL('image/png');
   }
 
-  private startRenderLoop(): void {
-    const loop = () => {
-      this.animFrameId = requestAnimationFrame(loop);
-
-      if (this.needsRender || this.isDragging) {
+  private requestRender(): void {
+    if (!this.isVisible() || this.animFrameId !== null) return;
+    this.animFrameId = requestAnimationFrame(() => {
+      this.animFrameId = null;
+      if (!this.isVisible()) return;
+      if (this.meshDirty) {
+        this.updateMeshGeometry(false);
+      }
+      if (this.needsRender || this.textureDirty || this.isDragging) {
         this.renderDiffractionTexture();
         this.renderer.render(this.scene, this.camera);
+        this.textureDirty = false;
         if (!this.isDragging) {
           this.needsRender = false;
         }
       }
-    };
-    loop();
+      if (this.isDragging) {
+        this.requestRender();
+      }
+    });
   }
 
   public dispose(): void {
     this.cleanups.forEach(f=>f());
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+    if (this.opticalTexture) {
+      this.opticalTexture.dispose();
+      this.opticalTexture = null;
+    }
+    if (this.planeMesh?.geometry) {
+      this.planeMesh.geometry.dispose();
+    }
+    if (this.planeMaterial) {
+      this.planeMaterial.dispose();
+      this.planeMaterial = null;
     }
     this.diffractionRenderer.dispose();
     this.renderer.dispose();

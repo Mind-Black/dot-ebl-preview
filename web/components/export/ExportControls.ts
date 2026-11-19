@@ -56,6 +56,8 @@ export class ExportControls {
 
     const btnFlatOptical = document.createElement('button');
 
+    btnFlatOptical.type = 'button';
+
     btnFlatOptical.className = 'btn btn-outline btn-sm';
 
     btnFlatOptical.textContent = 'Optical Preview PNG (1:1)';
@@ -67,6 +69,8 @@ export class ExportControls {
     // 2. Perspective Viewport Capture PNG
 
     const btnPerspective = document.createElement('button');
+
+    btnPerspective.type = 'button';
 
     btnPerspective.className = 'btn btn-outline btn-sm';
 
@@ -80,6 +84,8 @@ export class ExportControls {
 
     const btnCsv = document.createElement('button');
 
+    btnCsv.type = 'button';
+
     btnCsv.className = 'btn btn-outline btn-sm';
 
     btnCsv.textContent = 'Parameter Distribution (CSV)';
@@ -92,6 +98,8 @@ export class ExportControls {
 
     const btnJson = document.createElement('button');
 
+    btnJson.type = 'button';
+
     btnJson.className = 'btn btn-outline btn-sm';
 
     btnJson.textContent = 'Parameter Metadata (JSON)';
@@ -100,24 +108,130 @@ export class ExportControls {
 
 
 
-    const capabilityNotice=document.createElement('p'); capabilityNotice.className='text-muted text-xs'; this.element.append(capabilityNotice);
-    const updateEligibility=()=>{capabilityNotice.textContent = !this.dualViewport.flatView.available ? 'Optical captures are unavailable. Use Retry preview above; parameter data and fabrication exports remain available.' : !this.dualViewport.perspectiveView ? 'Perspective capture is unavailable because its renderer could not initialize.' : ''; for(const b of [btnFlatOptical,btnPerspective,btnCsv,btnJson]) b.disabled=!designStore.canExport();btnFlatOptical.disabled ||= !this.dualViewport.flatView.available;btnPerspective.disabled ||= !this.dualViewport.perspectiveView;};
-    designStore.subscribe(updateEligibility); this.element.addEventListener('pointerover',updateEligibility); this.element.addEventListener('focusin',updateEligibility); updateEligibility();
+    const capabilityNotice = document.createElement('p');
+    capabilityNotice.className = 'text-muted text-xs';
+    this.element.append(capabilityNotice);
+    const updateEligibility = () => {
+      capabilityNotice.textContent = !this.dualViewport.flatView.available
+        ? 'Optical captures are unavailable. Use Retry preview above; parameter data and fabrication exports remain available.'
+        : !this.dualViewport.perspectiveView
+          ? 'Perspective capture is unavailable because its renderer could not initialize.'
+          : '';
+      for (const b of [btnFlatOptical, btnPerspective, btnCsv, btnJson]) {
+        b.disabled = !designStore.canExport();
+      }
+      btnFlatOptical.disabled ||= !this.dualViewport.flatView.available;
+      btnPerspective.disabled ||= !this.dualViewport.perspectiveView;
+    };
+    designStore.subscribe(updateEligibility);
+    this.dualViewport.onFlatAvailabilityChange(updateEligibility);
+    this.element.addEventListener('pointerover', updateEligibility);
+    this.element.addEventListener('focusin', updateEligibility);
+    updateEligibility();
     btnGrid.append(btnFlatOptical, btnPerspective, btnCsv, btnJson);
 
     this.element.appendChild(btnGrid);
 
-    const section=document.createElement('details');const summary=document.createElement('summary');summary.textContent='EBL Lithography Fabrication';section.append(summary);
+    const section = document.createElement('details');
+    section.className = 'fabrication-details';
+    const summary = document.createElement('summary');
+    summary.textContent = 'EBL Lithography Fabrication';
+    section.append(summary);
 
-    const field=(label:string,value:string,type='number')=>{const l=document.createElement('label');l.textContent=label;const i=document.createElement('input');i.type=type;i.value=value;i.className='form-input';l.append(i);section.append(l);return i;};
+    const fields = document.createElement('div');
+    fields.className = 'fabrication-fields';
+    section.append(fields);
 
-    const layer=field('GDS layer','1');layer.min='0';layer.max='63';const dose=field('Dose factor','1');dose.min='0';dose.max='17797.5';dose.step='0.001';const name=field('Top structure name','HOLOGRAM','text');name.maxLength=32;const center=field('Center full grid at (0, 0)','','checkbox');
+    const field = (label: string, value: string, type = 'number') => {
+      const l = document.createElement('label');
+      l.textContent = label;
+      const i = document.createElement('input');
+      i.type = type;
+      i.value = value;
+      i.className = 'form-input';
+      l.append(i);
+      fields.append(l);
+      return i;
+    };
 
-    const exportButton=document.createElement('button');exportButton.className='btn btn-primary w-full';exportButton.textContent='Export EBL Layout (.gds)';section.append(exportButton);
+    const layer = field('GDS layer', '1');
+    layer.min = '0';
+    layer.max = '63';
+    layer.step = '1';
+    const dose = field('Dose factor', '1');
+    dose.min = '0';
+    dose.max = '17797.5';
+    dose.step = '0.001';
+    const name = field('Top structure name', 'HOLOGRAM', 'text');
+    name.maxLength = 32;
 
-    let previous:object|null=null;designStore.subscribe(()=>{const d=designStore.getDesign();exportButton.disabled=!d||designStore.getIsProcessing()||!!designStore.getError();if(d&&d!==previous){if(d.layer!==undefined)layer.value=String(d.layer);if(d.dose!==undefined)dose.value=String(d.dose);previous=d;}});
+    const centerLabel = document.createElement('label');
+    centerLabel.className = 'checkbox-label';
+    const center = document.createElement('input');
+    center.type = 'checkbox';
+    const centerSpan = document.createElement('span');
+    centerSpan.textContent = 'Center full grid at (0, 0)';
+    centerLabel.append(center, centerSpan);
+    fields.append(centerLabel);
 
-    exportButton.disabled=!designStore.getDesign();exportButton.onclick=()=>{const d=designStore.getDesign();if(d&&!designStore.getIsProcessing()&&!designStore.getError())openFabrication(fabricationSnapshot(d, sceneStore.getOrientationDeg()),{topName:name.value,layer:Number(layer.value),dose:Number(dose.value),centerOrigin:center.checked});};this.element.append(section);
+    const fabError = document.createElement('p');
+    fabError.className = 'text-xs alert-inline hidden';
+    fabError.setAttribute('role', 'alert');
+    section.append(fabError);
+
+    const clearFabError = () => {
+      fabError.textContent = '';
+      fabError.classList.add('hidden');
+    };
+    layer.addEventListener('input', clearFabError);
+    dose.addEventListener('input', clearFabError);
+
+    const exportButton = document.createElement('button');
+    exportButton.type = 'button';
+    exportButton.className = 'btn btn-primary w-full';
+    exportButton.textContent = 'Export EBL Layout (.gds)';
+    section.append(exportButton);
+
+    let previous: object | null = null;
+    designStore.subscribe(() => {
+      const d = designStore.getDesign();
+      exportButton.disabled = !d || designStore.getIsProcessing() || !!designStore.getError();
+      if (d && d !== previous) {
+        if (d.layer !== undefined) layer.value = String(d.layer);
+        if (d.dose !== undefined) dose.value = String(d.dose);
+        previous = d;
+      }
+    });
+
+    exportButton.disabled = !designStore.getDesign();
+    exportButton.onclick = () => {
+      const d = designStore.getDesign();
+      if (!d || designStore.getIsProcessing() || designStore.getError()) return;
+      const layerTrim = layer.value.trim();
+      const doseTrim = dose.value.trim();
+      const layerNum = Number(layerTrim);
+      const doseNum = Number(doseTrim);
+      if (!layerTrim || !Number.isInteger(layerNum) || layerNum < 0 || layerNum > 63) {
+        fabError.textContent = 'GDS layer must be an integer between 0 and 63.';
+        fabError.classList.remove('hidden');
+        layer.focus();
+        return;
+      }
+      if (!doseTrim || !Number.isFinite(doseNum) || doseNum < 0 || doseNum > 17797.5) {
+        fabError.textContent = 'Dose factor must be a number between 0 and 17797.5.';
+        fabError.classList.remove('hidden');
+        dose.focus();
+        return;
+      }
+      clearFabError();
+      openFabrication(fabricationSnapshot(d, sceneStore.getOrientationDeg()), {
+        topName: name.value,
+        layer: layerNum,
+        dose: doseNum,
+        centerOrigin: center.checked,
+      });
+    };
+    this.element.append(section);
 
 
 
@@ -159,7 +273,7 @@ export class ExportControls {
 
     document.body.removeChild(a);
 
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 
   }
 
@@ -215,7 +329,7 @@ export class ExportControls {
 
     for (const p of stats.uniquePeriods) {
 
-      const pct = ((p.count / stats.activeCells) * 100).toFixed(2);
+      const pct = stats.activeCells > 0 ? ((p.count / stats.activeCells) * 100).toFixed(2) : '0.00';
 
       csv += `grating_period,${p.periodNm},nm,${p.count},${pct}%\n`;
 
@@ -223,7 +337,7 @@ export class ExportControls {
 
     for (const a of stats.uniqueAngles) {
 
-      const pct = ((a.count / stats.activeCells) * 100).toFixed(2);
+      const pct = stats.activeCells > 0 ? ((a.count / stats.activeCells) * 100).toFixed(2) : '0.00';
 
       csv += `grating_angle,${a.angleDeg.toFixed(2)},deg,${a.count},${pct}%\n`;
 

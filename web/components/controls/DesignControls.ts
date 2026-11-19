@@ -37,14 +37,6 @@ export class DesignControls {
 
   private rgbaPanel: HTMLElement;
 
-  private minPeriodInput: HTMLInputElement;
-
-  private maxPeriodInput: HTMLInputElement;
-
-  private minAngleInput: HTMLInputElement;
-
-  private maxAngleInput: HTMLInputElement;
-
   private filterCheckbox: HTMLInputElement;
 
   private roundAnglesCheckbox: HTMLInputElement;
@@ -58,6 +50,16 @@ export class DesignControls {
   private qualityContainer: HTMLElement;
 
   private errorBanner: HTMLElement;
+
+  private identityStatus: HTMLParagraphElement;
+
+  private recoveryGroup: HTMLDivElement;
+
+  private retryBtn: HTMLButtonElement;
+
+  private chooseAnotherBtn: HTMLButtonElement;
+
+  private continueBtn: HTMLButtonElement;
 
   private fileInput: HTMLInputElement;
 
@@ -91,10 +93,28 @@ export class DesignControls {
     this.errorBanner.className = 'alert alert-danger hidden';
 
     this.element.appendChild(this.errorBanner);
-    const identity = document.createElement('p'); identity.setAttribute('role','status'); this.element.append(identity);
-    const recovery = document.createElement('div'); this.element.append(recovery);
-    for (const [label,action] of [['Retry',()=>designStore.retryImport()],['Choose another file',()=>this.fileInput.click()],['Continue with retained design',()=>designStore.clearError()]] as const) { const b=document.createElement('button'); b.className='btn'; b.textContent=label; b.onclick=action; recovery.append(b); }
-    designStore.subscribe(()=>{ identity.textContent = designStore.getPendingFilename() ? `Importing ${designStore.getPendingFilename()}…` : `${designStore.getDesign()?.sourceIdentity ?? 'No design loaded'} · ${designStore.getInterpretation()}`; recovery.hidden=!designStore.getError(); }); recovery.hidden=true;
+    this.identityStatus = document.createElement('p');
+    this.identityStatus.className = 'design-identity-status';
+    this.identityStatus.setAttribute('role', 'status');
+    this.identityStatus.textContent = `${designStore.getDesign()?.sourceIdentity ?? 'No design loaded'} · ${designStore.getInterpretation()}`;
+    this.element.append(this.identityStatus);
+
+    this.recoveryGroup = document.createElement('div');
+    this.recoveryGroup.className = 'import-recovery-actions';
+    this.recoveryGroup.hidden = true;
+    const makeRecoveryBtn = (label: string, action: () => void) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-outline btn-xs';
+      b.textContent = label;
+      b.onclick = action;
+      this.recoveryGroup.append(b);
+      return b;
+    };
+    this.retryBtn = makeRecoveryBtn('Retry', () => designStore.retryImport());
+    this.chooseAnotherBtn = makeRecoveryBtn('Choose another file', () => this.fileInput.click());
+    this.continueBtn = makeRecoveryBtn('Continue with retained design', () => designStore.clearError());
+    this.element.append(this.recoveryGroup);
 
 
 
@@ -130,11 +150,13 @@ export class DesignControls {
 
     const uploadBtn = document.createElement('button');
 
+    uploadBtn.type = 'button';
+
     uploadBtn.className = 'btn btn-primary w-full';
 
     uploadBtn.innerHTML = `
 
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2" aria-hidden="true">
 
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
 
@@ -254,157 +276,43 @@ export class DesignControls {
 
 
     const periodRow = document.createElement('div');
-
     periodRow.className = 'grid grid-cols-2 gap-2 mb-2';
-
-
-
-    const minPeriodGroup = document.createElement('div');
-
-    const minPeriodLabel = document.createElement('label');
-
-    minPeriodLabel.className = 'text-xs text-muted block mb-1';
-
-    minPeriodLabel.textContent = 'Min Period (nm)';
-
-    this.minPeriodInput = document.createElement('input');
-
-    this.minPeriodInput.type = 'number';
-
-    this.minPeriodInput.className = 'form-input form-input-sm w-full';
-
-    this.minPeriodInput.value = '400';
-
-    this.minPeriodInput.step = '10';
-
-    this.minPeriodInput.onchange = () => {
-
-      const val = parseFloat(this.minPeriodInput.value);
-
-      if (Number.isFinite(val) && val > 0) {
-
-        designStore.setRgbaOptions({ minPeriodNm: val });
-
-      }
-
-    };
-
-    minPeriodGroup.append(minPeriodLabel, this.minPeriodInput);
-
-
-
-    const maxPeriodGroup = document.createElement('div');
-
-    const maxPeriodLabel = document.createElement('label');
-
-    maxPeriodLabel.className = 'text-xs text-muted block mb-1';
-
-    maxPeriodLabel.textContent = 'Max Period (nm)';
-
-    this.maxPeriodInput = document.createElement('input');
-
-    this.maxPeriodInput.type = 'number';
-
-    this.maxPeriodInput.className = 'form-input form-input-sm w-full';
-
-    this.maxPeriodInput.value = '1600';
-
-    this.maxPeriodInput.step = '10';
-
-    this.maxPeriodInput.onchange = () => {
-
-      const val = parseFloat(this.maxPeriodInput.value);
-
-      if (Number.isFinite(val) && val > 0) {
-
-        designStore.setRgbaOptions({ maxPeriodNm: val });
-
-      }
-
-    };
-
-    maxPeriodGroup.append(maxPeriodLabel, this.maxPeriodInput);
-
-    periodRow.append(minPeriodGroup, maxPeriodGroup);
-
+    for (const [label, key, min, max, initialVal] of [
+      ['Min Period (nm)', 'minPeriodNm', 200, 2000, 400],
+      ['Max Period (nm)', 'maxPeriodNm', 200, 2000, 1600],
+    ] as const) {
+      const control = createSliderControl({
+        label,
+        min,
+        max,
+        step: 10,
+        initialVal,
+        decimals: 0,
+        onChange: (v) => designStore.setRgbaOptions({ [key]: v }),
+      });
+      this.optionControls.set(key, control);
+      periodRow.append(control.container);
+    }
     this.rgbaPanel.appendChild(periodRow);
 
-
-
     const angleRow = document.createElement('div');
-
     angleRow.className = 'grid grid-cols-2 gap-2 mb-2';
-
-
-
-    const minAngleGroup = document.createElement('div');
-
-    const minAngleLabel = document.createElement('label');
-
-    minAngleLabel.className = 'text-xs text-muted block mb-1';
-
-    minAngleLabel.textContent = 'Min Angle (°)';
-
-    this.minAngleInput = document.createElement('input');
-
-    this.minAngleInput.type = 'number';
-
-    this.minAngleInput.className = 'form-input form-input-sm w-full';
-
-    this.minAngleInput.value = '-90';
-
-    this.minAngleInput.step = '1';
-
-    this.minAngleInput.onchange = () => {
-
-      const val = parseFloat(this.minAngleInput.value);
-
-      if (Number.isFinite(val)) {
-
-        designStore.setRgbaOptions({ minAngleDeg: val });
-
-      }
-
-    };
-
-    minAngleGroup.append(minAngleLabel, this.minAngleInput);
-
-
-
-    const maxAngleGroup = document.createElement('div');
-
-    const maxAngleLabel = document.createElement('label');
-
-    maxAngleLabel.className = 'text-xs text-muted block mb-1';
-
-    maxAngleLabel.textContent = 'Max Angle (°)';
-
-    this.maxAngleInput = document.createElement('input');
-
-    this.maxAngleInput.type = 'number';
-
-    this.maxAngleInput.className = 'form-input form-input-sm w-full';
-
-    this.maxAngleInput.value = '90';
-
-    this.maxAngleInput.step = '1';
-
-    this.maxAngleInput.onchange = () => {
-
-      const val = parseFloat(this.maxAngleInput.value);
-
-      if (Number.isFinite(val)) {
-
-        designStore.setRgbaOptions({ maxAngleDeg: val });
-
-      }
-
-    };
-
-    maxAngleGroup.append(maxAngleLabel, this.maxAngleInput);
-
-    angleRow.append(minAngleGroup, maxAngleGroup);
-
+    for (const [label, key, min, max, initialVal] of [
+      ['Min Angle (°)', 'minAngleDeg', -180, 180, -90],
+      ['Max Angle (°)', 'maxAngleDeg', -180, 180, 90],
+    ] as const) {
+      const control = createSliderControl({
+        label,
+        min,
+        max,
+        step: 1,
+        initialVal,
+        decimals: 0,
+        onChange: (v) => designStore.setRgbaOptions({ [key]: v }),
+      });
+      this.optionControls.set(key, control);
+      angleRow.append(control.container);
+    }
     this.rgbaPanel.appendChild(angleRow);
 
 
@@ -505,13 +413,32 @@ export class DesignControls {
 
 
 
-    for(const [input,key,min,max] of [[this.minPeriodInput,'minPeriodNm',200,2000],[this.maxPeriodInput,'maxPeriodNm',200,2000],[this.minAngleInput,'minAngleDeg',-180,180],[this.maxAngleInput,'maxAngleDeg',-180,180]] as const){
-
-      const control=createSliderControl({label:input.parentElement?.querySelector('label')?.textContent||key,min,max,step:key.includes('Period')?10:1,initialVal:Number(input.value),decimals:0,onChange:v=>{input.value=String(v);designStore.setRgbaOptions({[key]:v});}});this.optionControls.set(key,control);input.parentElement!.replaceChildren(control.container);input.hidden=true;
-
+    for (const [key, label, min, max, step, initialVal, decimals] of [
+      ['filterDiameter', 'Filter diameter', 1, 9, 2, 3, 0],
+      ['filterSigmaSpace', 'Spatial sigma', 10, 200, 5, 100, 1],
+      ['filterSigmaColorPeriod', 'Period sigma', 10, 100, 1, 50, 1],
+      ['filterSigmaColorAngle', 'Angle sigma', 2, 45, 1, 10, 1],
+    ] as const) {
+      const control = createSliderControl({
+        label,
+        min,
+        max,
+        step,
+        initialVal,
+        decimals,
+        onChange: (v) => {
+          if (key === 'filterDiameter') {
+            const odd = Math.min(9, Math.max(1, Math.round((v - 1) / 2) * 2 + 1));
+            if (odd !== v) control.setValue(odd);
+            designStore.setRgbaOptions({ filterDiameter: odd });
+          } else {
+            designStore.setRgbaOptions({ [key]: v });
+          }
+        },
+      });
+      this.optionControls.set(key, control);
+      this.rgbaPanel.append(control.container);
     }
-
-    for(const [key,label,min,max,step,initialVal] of [['filterDiameter','Filter diameter',1,9,2,3],['filterSigmaSpace','Spatial sigma',10,200,5,100],['filterSigmaColorPeriod','Period sigma',10,100,1,50],['filterSigmaColorAngle','Angle sigma',2,45,1,10]] as const){const control=createSliderControl({label,min,max,step,initialVal,onChange:v=>designStore.setRgbaOptions({[key]:v})});this.optionControls.set(key,control);this.rgbaPanel.append(control.container);}
 
     this.element.appendChild(this.rgbaPanel);
 
@@ -633,7 +560,13 @@ export class DesignControls {
 
       const btn = document.createElement('button');
 
-      btn.className = `btn btn-sm ${lvl.id === sceneStore.getQuality() ? 'btn-active' : ''}`;
+      btn.type = 'button';
+
+      const isActive = lvl.id === sceneStore.getQuality();
+
+      btn.className = `btn btn-sm ${isActive ? 'btn-active' : ''}`;
+
+      btn.setAttribute('aria-pressed', String(isActive));
 
       btn.textContent = lvl.name;
 
@@ -678,6 +611,7 @@ export class DesignControls {
     sampleRow.className = 'grid grid-cols-2 gap-2';
 
     const showcaseBtn = document.createElement('button');
+    showcaseBtn.type = 'button';
     showcaseBtn.className = 'btn btn-xs btn-outline btn-showcase-select';
     showcaseBtn.style.gridColumn = '1 / -1';
     showcaseBtn.textContent = '✨ Default Showcase (256×256)';
@@ -692,6 +626,8 @@ export class DesignControls {
     for (const preset of SAMPLE_PRESETS) {
 
       const btn = document.createElement('button');
+
+      btn.type = 'button';
 
       btn.className = 'btn btn-xs btn-outline';
 
@@ -733,7 +669,11 @@ export class DesignControls {
 
     buttons.forEach((btn, idx) => {
 
-      btn.classList.toggle('btn-active', order[idx] === q);
+      const active = order[idx] === q;
+
+      btn.classList.toggle('btn-active', active);
+
+      btn.setAttribute('aria-pressed', String(active));
 
     });
 
@@ -743,9 +683,22 @@ export class DesignControls {
 
   private setupSubscriptions(): void {
 
-    designStore.subscribe(() => {
+    const syncDesignState = () => {
 
       const err = designStore.getError();
+
+      const design = designStore.getDesign();
+
+      const pending = designStore.getPendingFilename();
+
+      this.identityStatus.textContent = pending
+        ? `Importing ${pending}…`
+        : `${design?.sourceIdentity ?? 'No design loaded'} · ${designStore.getInterpretation()}`;
+
+      this.recoveryGroup.hidden = !err;
+      this.retryBtn.hidden = !designStore.canRetryImport();
+      this.chooseAnotherBtn.hidden = !err;
+      this.continueBtn.hidden = !err || !design;
 
       if (err) {
 
@@ -766,7 +719,7 @@ export class DesignControls {
       const interp = designStore.getInterpretation();
 
       this.formatSelect.value = interp;
-      this.formatSelect.disabled = interp === 'NPZ design' || !!designStore.getPendingFilename();
+      this.formatSelect.disabled = interp === 'NPZ design' || !!pending;
       Array.from(this.formatSelect.options).forEach(o=>o.disabled=o.value==='NPZ design');
 
       this.pitchControl.setValue(designStore.getPitchNm() / 1000.0);
@@ -789,37 +742,21 @@ export class DesignControls {
       const defaults = {minPeriodNm:400,maxPeriodNm:1600,minAngleDeg:-90,maxAngleDeg:90,filterDiameter:3,filterSigmaSpace:100,filterSigmaColorPeriod:50,filterSigmaColorAngle:10};
       for (const [key,control] of this.optionControls) control.setValue(Number(opts[key as keyof typeof opts] ?? defaults[key as keyof typeof defaults]));
 
-      if (document.activeElement !== this.minPeriodInput) {
-
-        this.minPeriodInput.value = String(opts.minPeriodNm ?? 400);
-
+      const filterEnabled = opts.applyFilter ?? true;
+      for (const key of ['filterDiameter', 'filterSigmaSpace', 'filterSigmaColorPeriod', 'filterSigmaColorAngle']) {
+        this.optionControls.get(key)?.setDisabled(!filterEnabled);
       }
 
-      if (document.activeElement !== this.maxPeriodInput) {
-
-        this.maxPeriodInput.value = String(opts.maxPeriodNm ?? 1600);
-
-      }
-
-      if (document.activeElement !== this.minAngleInput) {
-
-        this.minAngleInput.value = String(opts.minAngleDeg ?? -90);
-
-      }
-
-      if (document.activeElement !== this.maxAngleInput) {
-
-        this.maxAngleInput.value = String(opts.maxAngleDeg ?? 90);
-
-      }
-
-      this.filterCheckbox.checked = opts.applyFilter ?? true;
+      this.filterCheckbox.checked = filterEnabled;
 
       this.roundAnglesCheckbox.checked = opts.roundIntegerAngles ?? false;
 
       this.roundPeriodCheckbox.checked = opts.roundPeriod50Nm ?? false;
 
-    });
+    };
+
+    designStore.subscribe(syncDesignState);
+    syncDesignState();
 
 
 

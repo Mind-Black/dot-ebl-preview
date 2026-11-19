@@ -27,16 +27,19 @@ export class DualViewport {
     tabGroup.className = 'btn-group';
 
     const btnPerspective = document.createElement('button');
+    btnPerspective.type = 'button';
     btnPerspective.className = 'btn btn-sm';
     btnPerspective.textContent = '3D Perspective';
     btnPerspective.disabled = true;
     btnPerspective.title = '3D Perspective view is disabled for now';
 
     const btnFlat = document.createElement('button');
+    btnFlat.type = 'button';
     btnFlat.className = 'btn btn-sm btn-active';
     btnFlat.textContent = 'Flat 2D Reference';
 
     const btnSplit = document.createElement('button');
+    btnSplit.type = 'button';
     btnSplit.className = 'btn btn-sm';
     btnSplit.textContent = 'Side-by-Side';
     btnSplit.disabled = true;
@@ -45,6 +48,7 @@ export class DualViewport {
     tabGroup.append(btnPerspective, btnFlat, btnSplit);
 
     const fitBtn = document.createElement('button');
+    fitBtn.type = 'button';
     fitBtn.className = 'btn btn-sm btn-outline';
     fitBtn.textContent = 'Fit View';
     fitBtn.onclick = () => {
@@ -131,6 +135,10 @@ export class DualViewport {
 
   public getViewMode(): 'perspective' | 'flat' | 'split' {
     return this.viewMode;
+  }
+
+  public onFlatAvailabilityChange(cb: () => void): void {
+    this.flatView.setOnAvailabilityChange(cb);
   }
 
   private updateQualityBadge(): void {

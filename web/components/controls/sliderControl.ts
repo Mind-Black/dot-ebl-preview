@@ -24,6 +24,7 @@ export interface SliderControl {
   valueBadge: HTMLElement;
   getValue(): number;
   setValue(val: number): void;
+  setDisabled(disabled: boolean): void;
 }
 
 let controlId = 0;
@@ -69,18 +70,20 @@ export function createSliderControl(options: SliderControlOptions): SliderContro
   numInput.className = 'form-input form-input-sm w-20 text-right font-mono';
 
   let currentVal = options.initialVal;
-
+  slider.setAttribute('aria-valuetext', `${options.initialVal.toFixed(decimals)}${unit}`);
 
   const updateFromVal = (val: number, source: 'slider' | 'number' | 'external') => {
     if (!Number.isFinite(val)) return;
     currentVal = val;
-    valueBadge.textContent = `${val.toFixed(decimals)}${unit}`;
+    const formatted = `${val.toFixed(decimals)}${unit}`;
+    valueBadge.textContent = formatted;
+    slider.setAttribute('aria-valuetext', formatted);
 
     if (source !== 'slider') {
       const clampedForSlider = Math.max(options.min, Math.min(options.max, val));
       slider.value = clampedForSlider.toString();
     }
-    if (source !== 'number') {
+    if (source !== 'number' && !(source === 'external' && document.activeElement === numInput)) {
       numInput.value = val.toFixed(decimals);
     }
 
@@ -94,29 +97,55 @@ export function createSliderControl(options: SliderControlOptions): SliderContro
     updateFromVal(val, 'slider');
   };
 
+  let isPointerActive = false;
+  const endInteraction = () => {
+    if (!isPointerActive) return;
+    isPointerActive = false;
+    window.removeEventListener('pointerup', endInteraction);
+    window.removeEventListener('pointercancel', endInteraction);
+    window.removeEventListener('blur', endInteraction);
+    options.onInteractingChange?.(false);
+  };
+
   slider.addEventListener('pointerdown', () => {
+    if (isPointerActive) return;
+    isPointerActive = true;
+    window.addEventListener('pointerup', endInteraction);
+    window.addEventListener('pointercancel', endInteraction);
+    window.addEventListener('blur', endInteraction);
     options.onInteractingChange?.(true);
   });
-  slider.addEventListener('pointerup', () => {
-    options.onInteractingChange?.(false);
-  });
-  slider.addEventListener('pointercancel', () => {
-    options.onInteractingChange?.(false);
-  });
+  slider.addEventListener('pointerup', endInteraction);
+  slider.addEventListener('pointercancel', endInteraction);
 
   numInput.oninput = () => {
     const val = parseFloat(numInput.value);
-    if (Number.isFinite(val)) {
+    if (Number.isFinite(val) && val >= numMin && val <= numMax) {
       updateFromVal(val, 'number');
     }
   };
 
-  numInput.onchange = () => {
+  const commitNumberInput = () => {
     const val = parseFloat(numInput.value);
-    if (Number.isFinite(val)) {
-      updateFromVal(val, 'number');
+    if (!Number.isFinite(val)) {
+      numInput.value = currentVal.toFixed(decimals);
+      return;
+    }
+    const clamped = Math.max(numMin, Math.min(numMax, val));
+    numInput.value = clamped.toFixed(decimals);
+    if (clamped !== currentVal) {
+      updateFromVal(clamped, 'number');
+    } else {
+      const clampedForSlider = Math.max(options.min, Math.min(options.max, clamped));
+      slider.value = clampedForSlider.toString();
+      const formatted = `${clamped.toFixed(decimals)}${unit}`;
+      valueBadge.textContent = formatted;
+      slider.setAttribute('aria-valuetext', formatted);
     }
   };
+
+  numInput.onchange = commitNumberInput;
+  numInput.onblur = commitNumberInput;
 
   slider.id = `${id}-range`; numInput.id = `${id}-number`;
   labelRow.htmlFor = slider.id;
@@ -135,6 +164,11 @@ export function createSliderControl(options: SliderControlOptions): SliderContro
     getValue: () => currentVal,
     setValue: (val: number) => {
       updateFromVal(val, 'external');
+    },
+    setDisabled: (disabled: boolean) => {
+      slider.disabled = disabled;
+      numInput.disabled = disabled;
+      container.classList.toggle('is-disabled', disabled);
     },
   };
 }

@@ -6,6 +6,8 @@ import { designStore } from '../../lib/store/designStore';
 
 export class StatsPanel {
   public readonly container: HTMLElement;
+  private lastDesign: unknown = Symbol('init');
+  private lastStats: unknown = Symbol('init');
 
   constructor() {
     this.container = document.createElement('div');
@@ -18,8 +20,13 @@ export class StatsPanel {
   }
 
   public render(): void {
+    if (this.container.classList.contains('hidden')) return;
+
     const stats = designStore.getStats();
     const design = designStore.getDesign();
+    if (design === this.lastDesign && stats === this.lastStats) return;
+    this.lastDesign = design;
+    this.lastStats = stats;
 
     if (!design || !stats) {
       this.container.innerHTML = `
@@ -31,6 +38,7 @@ export class StatsPanel {
     }
 
     const fillPercent = (stats.fillFactor * 100).toFixed(1);
+    const periodRangeText = stats.activeCells > 0 ? `${stats.minPeriodNm} – ${stats.maxPeriodNm} nm` : '—';
 
     this.container.innerHTML = `
       <div class="stats-overview-grid">
@@ -51,7 +59,7 @@ export class StatsPanel {
         </div>
         <div class="stat-card">
           <div class="stat-label">Period Range</div>
-          <div class="stat-value">${stats.minPeriodNm} – ${stats.maxPeriodNm} nm</div>
+          <div class="stat-value">${periodRangeText}</div>
           <div class="stat-sub">${stats.uniquePeriods.length} unique periods</div>
         </div>
       </div>
@@ -63,29 +71,38 @@ export class StatsPanel {
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Period (nm)</th>
-                  <th>Cell Count</th>
-                  <th>Distribution</th>
+                  <th scope="col">Period (nm)</th>
+                  <th scope="col">Cell Count</th>
+                  <th scope="col">Distribution</th>
                 </tr>
               </thead>
               <tbody>
-                ${stats.uniquePeriods
-                  .map((p) => {
-                    const pct = ((p.count / stats.activeCells) * 100).toFixed(1);
-                    return `
-                      <tr>
-                        <td><strong>${p.periodNm} nm</strong></td>
-                        <td>${p.count.toLocaleString()}</td>
-                        <td>
-                          <div class="distribution-bar-wrapper">
-                            <div class="bar-fill" style="width: ${pct}%"></div>
-                            <span class="pct-label">${pct}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    `;
-                  })
-                  .join('')}
+                ${
+                  stats.activeCells === 0 || stats.uniquePeriods.length === 0
+                    ? `<tr><td colspan="3" class="text-muted text-center">No active cells</td></tr>`
+                    : `${stats.uniquePeriods
+                        .slice(0, 50)
+                        .map((p) => {
+                          const pct = stats.activeCells > 0 ? ((p.count / stats.activeCells) * 100).toFixed(1) : '0.0';
+                          return `
+                            <tr>
+                              <td><strong>${p.periodNm} nm</strong></td>
+                              <td>${p.count.toLocaleString()}</td>
+                              <td>
+                                <div class="distribution-bar-wrapper">
+                                  <div class="bar-fill" style="width: ${pct}%"></div>
+                                  <span class="pct-label">${pct}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          `;
+                        })
+                        .join('')}${
+                        stats.uniquePeriods.length > 50
+                          ? `<tr><td colspan="3" class="text-muted text-center">+ ${stats.uniquePeriods.length - 50} more periods (see CSV export)</td></tr>`
+                          : ''
+                      }`
+                }
               </tbody>
             </table>
           </div>
@@ -97,34 +114,37 @@ export class StatsPanel {
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Angle (°)</th>
-                  <th>Cell Count</th>
-                  <th>Distribution</th>
+                  <th scope="col">Angle (°)</th>
+                  <th scope="col">Cell Count</th>
+                  <th scope="col">Distribution</th>
                 </tr>
               </thead>
               <tbody>
-                ${stats.uniqueAngles
-                  .slice(0, 50)
-                  .map((a) => {
-                    const pct = ((a.count / stats.activeCells) * 100).toFixed(1);
-                    return `
-                      <tr>
-                        <td><strong>${a.angleDeg.toFixed(2)}°</strong></td>
-                        <td>${a.count.toLocaleString()}</td>
-                        <td>
-                          <div class="distribution-bar-wrapper">
-                            <div class="bar-fill angle-bar" style="width: ${pct}%"></div>
-                            <span class="pct-label">${pct}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    `;
-                  })
-                  .join('')}
                 ${
-                  stats.uniqueAngles.length > 50
-                    ? `<tr><td colspan="3" class="text-muted text-center">+ ${stats.uniqueAngles.length - 50} more angles (see CSV export)</td></tr>`
-                    : ''
+                  stats.activeCells === 0 || stats.uniqueAngles.length === 0
+                    ? `<tr><td colspan="3" class="text-muted text-center">No active cells</td></tr>`
+                    : `${stats.uniqueAngles
+                        .slice(0, 50)
+                        .map((a) => {
+                          const pct = stats.activeCells > 0 ? ((a.count / stats.activeCells) * 100).toFixed(1) : '0.0';
+                          return `
+                            <tr>
+                              <td><strong>${a.angleDeg.toFixed(2)}°</strong></td>
+                              <td>${a.count.toLocaleString()}</td>
+                              <td>
+                                <div class="distribution-bar-wrapper">
+                                  <div class="bar-fill angle-bar" style="width: ${pct}%"></div>
+                                  <span class="pct-label">${pct}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          `;
+                        })
+                        .join('')}${
+                        stats.uniqueAngles.length > 50
+                          ? `<tr><td colspan="3" class="text-muted text-center">+ ${stats.uniqueAngles.length - 50} more angles (see CSV export)</td></tr>`
+                          : ''
+                      }`
                 }
               </tbody>
             </table>

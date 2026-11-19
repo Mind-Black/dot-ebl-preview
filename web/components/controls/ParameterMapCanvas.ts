@@ -3,6 +3,7 @@
  */
 
 import { designStore } from '../../lib/store/designStore';
+import type { DesignModel, RawImageSource } from '../../lib/decoders/types';
 
 export class ParameterMapCanvas {
   public readonly container: HTMLElement;
@@ -10,6 +11,9 @@ export class ParameterMapCanvas {
   private legendContainer: HTMLElement;
   private downloadBtn: HTMLButtonElement;
   private mode: 'periods' | 'angles' | 'source';
+  private lastDesign: DesignModel | null = null;
+  private lastSource: RawImageSource | null = null;
+  private hasRendered = false;
 
   constructor(mode: 'periods' | 'angles' | 'source') {
     this.mode = mode;
@@ -29,8 +33,10 @@ export class ParameterMapCanvas {
         : 'Source Image / Input Data';
 
     this.downloadBtn = document.createElement('button');
+    this.downloadBtn.type = 'button';
     this.downloadBtn.className = 'btn btn-xs btn-outline';
     this.downloadBtn.textContent = 'Download PNG';
+    this.downloadBtn.disabled = true;
     this.downloadBtn.onclick = () => this.downloadMapPng();
 
     header.append(title, this.downloadBtn);
@@ -52,55 +58,97 @@ export class ParameterMapCanvas {
     });
   }
 
+  private renderEmptyLegend(message: string): void {
+    const span = document.createElement('span');
+    span.className = 'text-muted';
+    span.textContent = message;
+    this.legendContainer.replaceChildren(span);
+  }
+
   public render(): void {
     const design = designStore.getDesign();
     const source = designStore.getSource();
+    this.downloadBtn.disabled = !design || (this.mode === 'source' && !source);
+
+    if (this.container.classList.contains('hidden')) {
+      return;
+    }
+    if (this.hasRendered && design === this.lastDesign && source === this.lastSource) {
+      return;
+    }
+
     const ctx = this.canvas.getContext('2d');
     if (!ctx) return;
+
+    this.lastDesign = design;
+    this.lastSource = source;
+    this.hasRendered = true;
 
     if (!design) {
       this.canvas.width = 1;
       this.canvas.height = 1;
       ctx.clearRect(0, 0, 1, 1);
-      this.legendContainer.innerHTML = '<span class="text-muted">No design loaded</span>';
+      this.renderEmptyLegend('No design loaded');
       return;
     }
 
     const { width, height, periodNm, angleDeg, active } = design;
-    this.canvas.width = width;
-    this.canvas.height = height;
-
-    const imgData = ctx.createImageData(width, height);
-    const rgba = imgData.data;
 
     if (this.mode === 'source') {
       if (source && source.data) {
+        const srcW = source.width;
+        const srcH = source.height;
+        this.canvas.width = srcW;
+        this.canvas.height = srcH;
+        const srcImgData = ctx.createImageData(srcW, srcH);
+        const out = srcImgData.data;
+        const stride = source.channels >= 4 ? 4 : 3;
+        const is16Data = source.data instanceof Uint16Array;
         let src = 0;
         let dst = 0;
-        const is16 = source.bitDepth === 16;
-        for (let i = 0; i < width * height; i++) {
-          const r = is16 ? source.data[src++] >> 8 : source.data[src++];
-          const g = is16 ? source.data[src++] >> 8 : source.data[src++];
-          const b = is16 ? source.data[src++] >> 8 : source.data[src++];
-          rgba[dst++] = r;
-          rgba[dst++] = g;
-          rgba[dst++] = b;
-          rgba[dst++] = 255;
+        for (let i = 0; i < srcW * srcH; i++) {
+          const r = is16Data ? source.data[src] >> 8 : source.data[src];
+          const g = is16Data ? source.data[src + 1] >> 8 : source.data[src + 1];
+          const b = is16Data ? source.data[src + 2] >> 8 : source.data[src + 2];
+          if (stride === 4) {
+            const a = is16Data ? source.data[src + 3] >> 8 : source.data[src + 3];
+            out[dst++] = Math.round((r * a + 24 * (255 - a)) / 255);
+            out[dst++] = Math.round((g * a + 24 * (255 - a)) / 255);
+            out[dst++] = Math.round((b * a + 24 * (255 - a)) / 255);
+            out[dst++] = 255;
+          } else {
+            out[dst++] = r;
+            out[dst++] = g;
+            out[dst++] = b;
+            out[dst++] = 255;
+          }
+          src += stride;
         }
-        this.legendContainer.innerHTML = `
-          <span>Source: <strong>${source.filename}</strong> (${source.bitDepth}-bit RGB)</span>
-        `;
-      } else {
-        // Procedural / NPZ: no source image
-        ctx.fillStyle = '#181818';
-        ctx.fillRect(0, 0, width, height);
-        this.legendContainer.innerHTML = `
-          <span class="text-muted">Procedural / NPZ physical design — no raw RGB image imported</span>
-        `;
+        ctx.putImageData(srcImgData, 0, 0);
+
+        const span = document.createElement('span');
+        span.append('Source: ');
+        const strong = document.createElement('strong');
+        strong.textContent = source.filename;
+        span.append(strong, ` (${source.bitDepth}-bit ${source.channels >= 4 ? 'RGBA' : 'RGB'})`);
+        this.legendContainer.replaceChildren(span);
         return;
       }
-    } else if (this.mode === 'periods') {
-      // Find min and max active periods
+
+      this.canvas.width = width;
+      this.canvas.height = height;
+      ctx.fillStyle = '#181818';
+      ctx.fillRect(0, 0, width, height);
+      this.renderEmptyLegend('Procedural / NPZ physical design — no raw RGB image imported');
+      return;
+    }
+
+    this.canvas.width = width;
+    this.canvas.height = height;
+    const imgData = ctx.createImageData(width, height);
+    const rgba = imgData.data;
+
+    if (this.mode === 'periods') {
       let minP = Infinity;
       let maxP = -Infinity;
       let hasActive = false;
@@ -115,23 +163,30 @@ export class ParameterMapCanvas {
       }
 
       if (!hasActive) {
-        minP = 900;
-        maxP = 1200;
+        for (let i = 0; i < width * height; i++) {
+          const dst = i * 4;
+          rgba[dst] = 24;
+          rgba[dst + 1] = 24;
+          rgba[dst + 2] = 24;
+          rgba[dst + 3] = 255;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        this.renderEmptyLegend('No active cells');
+        return;
       }
 
-      const pRange = maxP > minP ? maxP - minP : 1;
+      const uniform = maxP === minP;
+      const pRange = uniform ? 1 : maxP - minP;
 
       let dst = 0;
       for (let i = 0; i < width * height; i++) {
         if (!active[i]) {
-          // Dark gray inactive
           rgba[dst++] = 24;
           rgba[dst++] = 24;
           rgba[dst++] = 24;
           rgba[dst++] = 255;
         } else {
-          // Blue-to-Red spectrum ramp: level in [0, 1]
-          const level = (periodNm[i] - minP) / pRange;
+          const level = uniform ? 0.5 : (periodNm[i] - minP) / pRange;
           const r = Math.round(255 * level);
           const g = Math.round(100 + 110 * (1 - Math.abs(2 * level - 1)));
           const b = Math.round(255 * (1 - level));
@@ -143,16 +198,19 @@ export class ParameterMapCanvas {
         }
       }
 
-      this.legendContainer.innerHTML = `
-        <div class="legend-bar period-gradient"></div>
-        <div class="legend-labels">
-          <span>${minP} nm</span>
-          <span>${Math.round((minP + maxP) / 2)} nm</span>
-          <span>${maxP} nm</span>
-        </div>
-      `;
+      if (uniform) {
+        this.renderEmptyLegend(`Uniform period: ${minP} nm • dark = inactive`);
+      } else {
+        this.legendContainer.innerHTML = `
+          <div class="legend-bar period-gradient"></div>
+          <div class="legend-labels">
+            <span>${minP} nm</span>
+            <span>${Math.round((minP + maxP) / 2)} nm</span>
+            <span>${maxP} nm</span>
+          </div>
+        `;
+      }
     } else {
-      // Angles Map: -90° to +90° axial hue wheel or blue-to-red
       let minA = Infinity;
       let maxA = -Infinity;
       let hasActive = false;
@@ -167,10 +225,20 @@ export class ParameterMapCanvas {
       }
 
       if (!hasActive) {
-        minA = -90;
-        maxA = 90;
+        for (let i = 0; i < width * height; i++) {
+          const dst = i * 4;
+          rgba[dst] = 24;
+          rgba[dst + 1] = 24;
+          rgba[dst + 2] = 24;
+          rgba[dst + 3] = 255;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        this.renderEmptyLegend('No active cells');
+        return;
       }
-      const aRange = maxA > minA ? maxA - minA : 1;
+
+      const uniform = maxA === minA;
+      const aRange = uniform ? 1 : maxA - minA;
 
       let dst = 0;
       for (let i = 0; i < width * height; i++) {
@@ -180,8 +248,7 @@ export class ParameterMapCanvas {
           rgba[dst++] = 24;
           rgba[dst++] = 255;
         } else {
-          const level = (angleDeg[i] - minA) / aRange;
-          // Cyclic or blue-to-red ramp
+          const level = uniform ? 0.5 : (angleDeg[i] - minA) / aRange;
           const hue = (2.0 / 3.0) * (1.0 - level);
           const [r, g, b] = this.hueToRgb(hue);
           rgba[dst++] = r;
@@ -191,14 +258,18 @@ export class ParameterMapCanvas {
         }
       }
 
-      this.legendContainer.innerHTML = `
-        <div class="legend-bar angle-gradient"></div>
-        <div class="legend-labels">
-          <span>${minA.toFixed(1)}°</span>
-          <span>${((minA + maxA) / 2).toFixed(1)}°</span>
-          <span>${maxA.toFixed(1)}°</span>
-        </div>
-      `;
+      if (uniform) {
+        this.renderEmptyLegend(`Uniform angle: ${minA.toFixed(1)}° • dark = inactive`);
+      } else {
+        this.legendContainer.innerHTML = `
+          <div class="legend-bar angle-gradient"></div>
+          <div class="legend-labels">
+            <span>${minA.toFixed(1)}°</span>
+            <span>${((minA + maxA) / 2).toFixed(1)}°</span>
+            <span>${maxA.toFixed(1)}°</span>
+          </div>
+        `;
+      }
     }
 
     ctx.putImageData(imgData, 0, 0);

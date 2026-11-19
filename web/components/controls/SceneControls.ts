@@ -20,6 +20,7 @@ export class SceneControls {
   private sweepRafId: number | null = null;
   private lastSweepTime = 0;
   private sweepSpeedDegPerSec = 36.0;
+  private sweepAz = 90.0;
 
   private secLightCheck: HTMLInputElement;
   private secLightFields: HTMLElement;
@@ -68,6 +69,7 @@ export class SceneControls {
     ];
     for (const preset of presets) {
       const btn = document.createElement('button');
+      btn.type = 'button';
       btn.className = 'btn btn-xs btn-outline';
       btn.textContent = preset.name;
       btn.onclick = () => {
@@ -83,11 +85,13 @@ export class SceneControls {
     sweepRow.className = 'sweep-control-row mb-3';
 
     this.sweepBtn = document.createElement('button');
+    this.sweepBtn.type = 'button';
     this.sweepBtn.className = 'btn btn-xs btn-outline btn-sweep-toggle w-full';
     this.sweepBtn.id = 'btn-sweep-azimuth';
     this.sweepBtn.setAttribute('aria-label', 'Toggle auto sweep azimuth');
+    this.sweepBtn.setAttribute('aria-pressed', 'false');
     this.sweepBtn.innerHTML = `
-      <svg class="sweep-icon mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg class="sweep-icon mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <polygon points="5 3 19 12 5 21 5 3"/>
       </svg>
       <span>Auto Sweep Azimuth</span>
@@ -182,7 +186,6 @@ export class SceneControls {
       this.secLightFields.classList.toggle('hidden', !this.secLightCheck.checked);
     };
     this.secLightCheck.onchange = handleSecLightToggle;
-    this.secLightCheck.oninput = handleSecLightToggle;
 
     const secTitle = document.createElement('span');
     secTitle.className = 'subgroup-title';
@@ -267,6 +270,7 @@ export class SceneControls {
     ];
     for (const p of secPresets) {
       const btn = document.createElement('button');
+      btn.type = 'button';
       btn.className = 'btn btn-xs btn-outline';
       btn.textContent = p.label;
       btn.onclick = () => {
@@ -306,21 +310,29 @@ export class SceneControls {
     orderBtnGroup.className = 'btn-group w-full';
 
     this.btnBothOrders = document.createElement('button');
+    this.btnBothOrders.type = 'button';
     this.btnBothOrders.className = 'btn btn-xs btn-active';
+    this.btnBothOrders.setAttribute('aria-pressed', 'true');
     this.btnBothOrders.textContent = 'Physical (±1 Orders)';
     this.btnBothOrders.onclick = () => {
       sceneStore.setDiffractionOrders('both');
       this.btnBothOrders.className = 'btn btn-xs btn-active';
       this.btnSingleOrder.className = 'btn btn-xs btn-outline';
+      this.btnBothOrders.setAttribute('aria-pressed', 'true');
+      this.btnSingleOrder.setAttribute('aria-pressed', 'false');
     };
 
     this.btnSingleOrder = document.createElement('button');
+    this.btnSingleOrder.type = 'button';
     this.btnSingleOrder.className = 'btn btn-xs btn-outline';
+    this.btnSingleOrder.setAttribute('aria-pressed', 'false');
     this.btnSingleOrder.textContent = 'Single (+1 Order Only)';
     this.btnSingleOrder.onclick = () => {
       sceneStore.setDiffractionOrders('single');
       this.btnSingleOrder.className = 'btn btn-xs btn-active';
       this.btnBothOrders.className = 'btn btn-xs btn-outline';
+      this.btnSingleOrder.setAttribute('aria-pressed', 'true');
+      this.btnBothOrders.setAttribute('aria-pressed', 'false');
     };
 
     orderBtnGroup.append(this.btnBothOrders, this.btnSingleOrder);
@@ -336,27 +348,37 @@ export class SceneControls {
     obsHeader.textContent = 'Physical Observer';
     obsGroup.appendChild(obsHeader);
 
+    const obsHint = document.createElement('p');
+    obsHint.className = 'text-xs text-muted mb-2';
+    obsHint.textContent = 'Flat 2D Reference uses top-down viewing (Distance & Aperture apply live); Azimuth & Elevation apply to Perspective Capture PNG.';
+    obsGroup.appendChild(obsHint);
+
     const camPresetRow = document.createElement('div');
     camPresetRow.className = 'btn-group w-full mb-3';
 
     const btnTop = document.createElement('button');
+    btnTop.type = 'button';
     btnTop.className = 'btn btn-xs btn-outline';
     btnTop.textContent = 'Top-Down View';
     btnTop.onclick = () => {
-      const dist = Math.hypot(...Object.values(sceneStore.getCameraPos()));
-      sceneStore.setCameraPos({ x: 0, y: 0.1, z: dist });
+      const cam = sceneStore.getCameraPos();
+      const dist = Math.hypot(cam.x, cam.y, cam.z) || 300;
+      sceneStore.setCameraPos({ x: 0, y: 0, z: dist });
     };
 
     const btnOblique = document.createElement('button');
+    btnOblique.type = 'button';
     btnOblique.className = 'btn btn-xs btn-outline';
     btnOblique.textContent = '45° Oblique View';
     btnOblique.onclick = () => {
-      const dist = Math.hypot(...Object.values(sceneStore.getCameraPos())) || 300;
+      const cam = sceneStore.getCameraPos();
+      const dist = Math.hypot(cam.x, cam.y, cam.z) || 300;
       const pos = positionFromDirection(270, 45, dist);
       sceneStore.setCameraPos(pos);
     };
 
     const btnReset = document.createElement('button');
+    btnReset.type = 'button';
     btnReset.className = 'btn btn-xs btn-outline';
     btnReset.textContent = 'Reset (0, 0, 300)';
     btnReset.onclick = () => {
@@ -444,31 +466,35 @@ export class SceneControls {
     if (this.isSweeping) return;
     this.isSweeping = true;
     this.sweepBtn.classList.add('btn-active');
+    this.sweepBtn.setAttribute('aria-pressed', 'true');
     this.sweepBtn.innerHTML = `
-      <svg class="sweep-icon mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg class="sweep-icon mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <rect x="6" y="4" width="4" height="16"/>
         <rect x="14" y="4" width="4" height="16"/>
       </svg>
       <span>Pause Sweep</span>
     `;
     this.lastSweepTime = performance.now();
+    this.sweepAz = ((directionFromPosition(sceneStore.getPrimaryLight().pos).azimuthDeg % 360) + 360) % 360;
 
     const sweepStep = (timestamp: number) => {
       if (!this.isSweeping) return;
       const dt = Math.min((timestamp - this.lastSweepTime) / 1000.0, 0.1);
       this.lastSweepTime = timestamp;
 
+      const primary = sceneStore.getPrimaryLight();
+      const dir = directionFromPosition(primary.pos);
       if (!this.isDraggingSlider) {
-        const currentAz = this.primaryAzControl.getValue();
-        let nextAz = (currentAz + this.sweepSpeedDegPerSec * dt) % 360.0;
+        let nextAz = (this.sweepAz + this.sweepSpeedDegPerSec * dt) % 360.0;
         if (nextAz < 0) nextAz += 360.0;
+        this.sweepAz = nextAz;
 
-        this.primaryAzControl.setValue(nextAz);
-
-        const currentEl = Math.max(1, Math.min(89, this.primaryElControl.getValue()));
-        const currentDist = Math.max(1, this.primaryDistControl.getValue());
+        const currentEl = Math.max(1, Math.min(89.9, dir.elevationDeg));
+        const currentDist = Math.max(10, dir.distanceMm);
         const pos = positionFromDirection(nextAz, currentEl, currentDist);
         sceneStore.setPrimaryLight({ pos });
+      } else {
+        this.sweepAz = ((dir.azimuthDeg % 360) + 360) % 360;
       }
 
       this.sweepRafId = requestAnimationFrame(sweepStep);
@@ -484,8 +510,9 @@ export class SceneControls {
       this.sweepRafId = null;
     }
     this.sweepBtn.classList.remove('btn-active');
+    this.sweepBtn.setAttribute('aria-pressed', 'false');
     this.sweepBtn.innerHTML = `
-      <svg class="sweep-icon mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg class="sweep-icon mr-1" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <polygon points="5 3 19 12 5 21 5 3"/>
       </svg>
       <span>Auto Sweep Azimuth</span>
@@ -559,6 +586,8 @@ export class SceneControls {
       const orders = sceneStore.getDiffractionOrders();
       this.btnBothOrders.className = `btn btn-xs ${orders === 'both' ? 'btn-active' : 'btn-outline'}`;
       this.btnSingleOrder.className = `btn btn-xs ${orders === 'single' ? 'btn-active' : 'btn-outline'}`;
+      this.btnBothOrders.setAttribute('aria-pressed', String(orders === 'both'));
+      this.btnSingleOrder.setAttribute('aria-pressed', String(orders === 'single'));
     }
   }
 

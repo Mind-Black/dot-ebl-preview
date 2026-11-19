@@ -16,20 +16,50 @@ export class FlatView {
   private offscreenCanvas: HTMLCanvasElement;
   private diffractionRenderer: WebGlDiffractionRenderer | null = null;
   public get available() { return !!this.diffractionRenderer; }
-  private selected = {row:0,col:0};
+  private selected = { row: 0, col: 0 };
   private selectionOutput = document.createElement('output');
   private rowInput = document.createElement('input');
   private colInput = document.createElement('input');
   private selectedRevision = -1;
-  private cleanups: (()=>void)[] = [];
-  private selectCell(row: number, col: number) {
-    const d=designStore.getDesign(); if(!d)return;
-    this.selected={row:Math.max(0,Math.min(d.height-1,row)),col:Math.max(0,Math.min(d.width-1,col))};
-    this.rowInput.max=String(d.height-1); this.colInput.max=String(d.width-1);
-    this.rowInput.value=String(this.selected.row); this.colInput.value=String(this.selected.col);
-    const i=this.selected.row*d.width+this.selected.col;
-    this.selectionOutput.textContent=`Cell (${this.selected.row}, ${this.selected.col}): ${d.active[i]?'Active':'Inactive'}; x=${((this.selected.col+.5-d.width/2)*d.pitchNm*1e-6).toFixed(3)} mm; y=${(-(this.selected.row+.5-d.height/2)*d.pitchNm*1e-6).toFixed(3)} mm; Period ${d.periodNm[i]} nm; Stored ${d.angleDeg[i].toFixed(2)}°; Effective ${(d.angleDeg[i]+sceneStore.getOrientationDeg()).toFixed(2)}°`;
-    this.requestRender();
+  private lastSelectionText = '';
+  private userHasTransformed = false;
+  private onAvailabilityChange?: () => void;
+  private cleanups: (() => void)[] = [];
+
+  public setOnAvailabilityChange(cb: () => void): void {
+    this.onAvailabilityChange = cb;
+  }
+
+  private refreshSelectionOutput(): void {
+    const d = designStore.getDesign();
+    if (!d) return;
+    const i = this.selected.row * d.width + this.selected.col;
+    const text = `Cell (${this.selected.row}, ${this.selected.col}): ${d.active[i] ? 'Active' : 'Inactive'}; x=${((this.selected.col + 0.5 - d.width / 2) * d.pitchNm * 1e-6).toFixed(3)} mm; y=${(-(this.selected.row + 0.5 - d.height / 2) * d.pitchNm * 1e-6).toFixed(3)} mm; Period ${d.periodNm[i]} nm; Stored ${d.angleDeg[i].toFixed(2)}°; Effective ${(d.angleDeg[i] + sceneStore.getOrientationDeg()).toFixed(2)}°`;
+    if (text !== this.lastSelectionText) {
+      this.lastSelectionText = text;
+      this.selectionOutput.textContent = text;
+    }
+  }
+
+  private selectCell(row: number, col: number, shouldRender = true) {
+    const d = designStore.getDesign();
+    if (!d) return;
+    const r = Number.isFinite(row) ? Math.trunc(row) : 0;
+    const c = Number.isFinite(col) ? Math.trunc(col) : 0;
+    this.selected = {
+      row: Math.max(0, Math.min(d.height - 1, r)),
+      col: Math.max(0, Math.min(d.width - 1, c)),
+    };
+    this.rowInput.max = String(d.height - 1);
+    this.colInput.max = String(d.width - 1);
+    if (document.activeElement !== this.rowInput) {
+      this.rowInput.value = String(this.selected.row);
+    }
+    if (document.activeElement !== this.colInput) {
+      this.colInput.value = String(this.selected.col);
+    }
+    this.refreshSelectionOutput();
+    if (shouldRender) this.requestRender();
   }
 
   private scale = 1.0;
@@ -48,24 +78,64 @@ export class FlatView {
     this.container = document.createElement('div');
     this.container.className = 'flat-viewport';
 
+    const stage = document.createElement('div');
+    stage.className = 'flat-canvas-stage';
+
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'flat-canvas';
-    this.container.appendChild(this.canvas);
+    stage.appendChild(this.canvas);
 
     this.offscreenCanvas = document.createElement('canvas');
-    const recovery=document.createElement('div'); recovery.className='preview-recovery'; recovery.setAttribute('role','status');
-    const retry=document.createElement('button'); retry.className='btn'; retry.textContent='Retry preview';
-    const initialize=()=>{try {this.diffractionRenderer=new WebGlDiffractionRenderer(this.offscreenCanvas); recovery.hidden=true; this.requestRender();} catch { recovery.hidden=false; }};
-    recovery.append('Optical preview requires WebGL. Enable browser hardware acceleration or try a compatible browser. Parameter inspection and data exports remain available. ',retry);
-    retry.onclick=initialize; this.container.append(recovery); initialize();
-    const probe=document.createElement('div'); probe.className='cell-selection';
-    for(const [name,input] of [['Row (zero-based)',this.rowInput],['Column (zero-based)',this.colInput]] as const){const label=document.createElement('label');label.textContent=name;input.type='number';input.min='0';input.value='0';label.append(input);probe.append(label);input.onchange=()=>this.selectCell(Number(this.rowInput.value)||0,Number(this.colInput.value)||0);}
-    this.selectionOutput.setAttribute('aria-live','polite'); probe.append(this.selectionOutput); this.container.append(probe);
-    this.canvas.tabIndex=0; this.canvas.setAttribute('aria-label','Optical preview. Arrow keys select cells');
-    this.canvas.onkeydown=e=>{const delta:Record<string,[number,number]>={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]}; if(delta[e.key]){e.preventDefault();this.selectCell(this.selected.row+delta[e.key][0],this.selected.col+delta[e.key][1]);}};
-    let downX=0,downY=0;
-    this.canvas.addEventListener('pointerdown',e=>{downX=e.clientX;downY=e.clientY;});
-    this.canvas.addEventListener('pointerup',e=>{if(Math.hypot(e.clientX-downX,e.clientY-downY)>5)return; const rect=this.canvas.getBoundingClientRect();this.selectCell(Math.floor((e.clientY-rect.top-this.panY)/this.scale),Math.floor((e.clientX-rect.left-this.panX)/this.scale));});
+    const recovery = document.createElement('div');
+    recovery.className = 'preview-recovery';
+    recovery.setAttribute('role', 'status');
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn btn-outline btn-sm';
+    retry.textContent = 'Retry preview';
+    const initialize = () => {
+      try {
+        this.diffractionRenderer = new WebGlDiffractionRenderer(this.offscreenCanvas);
+        recovery.hidden = true;
+        this.requestRender();
+      } catch {
+        this.diffractionRenderer = null;
+        recovery.hidden = false;
+      }
+      this.onAvailabilityChange?.();
+    };
+    recovery.append('Optical preview requires WebGL. Enable browser hardware acceleration or try a compatible browser. Parameter inspection and data exports remain available. ', retry);
+    retry.onclick = initialize;
+    stage.append(recovery);
+    initialize();
+
+    const probe = document.createElement('div');
+    probe.className = 'cell-selection';
+    for (const [name, input] of [['Row (zero-based)', this.rowInput], ['Column (zero-based)', this.colInput]] as const) {
+      const label = document.createElement('label');
+      label.textContent = name;
+      input.type = 'number';
+      input.min = '0';
+      input.step = '1';
+      input.value = '0';
+      input.className = 'form-input form-input-sm font-mono';
+      label.append(input);
+      probe.append(label);
+      input.onchange = () => this.selectCell(Number(this.rowInput.value) || 0, Number(this.colInput.value) || 0);
+    }
+    this.selectionOutput.setAttribute('aria-live', 'polite');
+    probe.append(this.selectionOutput);
+    this.container.append(stage, probe);
+
+    this.canvas.tabIndex = 0;
+    this.canvas.setAttribute('aria-label', 'Optical preview. Arrow keys select cells');
+    this.canvas.onkeydown = (e) => {
+      const delta: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+      if (delta[e.key]) {
+        e.preventDefault();
+        this.selectCell(this.selected.row + delta[e.key][0], this.selected.col + delta[e.key][1]);
+      }
+    };
 
     this.setupInteractions();
     this.setupSubscriptions();
@@ -74,22 +144,31 @@ export class FlatView {
   private setupSubscriptions(): void {
     let revision = -1;
     let lastDesign = designStore.getDesign();
+    let lastOrientationDeg = sceneStore.getOrientationDeg();
     this.cleanups.push(designStore.subscribe(() => {
-      if (designStore.getDesign() !== lastDesign && revision !== designStore.getSourceRevision()) {
+      const current = designStore.getDesign();
+      if (current !== lastDesign && revision !== designStore.getSourceRevision()) {
         revision = designStore.getSourceRevision();
         this.resetFit();
       }
-      if (designStore.getDesign() !== lastDesign) {
-        const revision=designStore.getSourceRevision();
-        if(revision!==this.selectedRevision){this.selected={row:0,col:0};this.selectedRevision=revision;}
-        this.selectCell(this.selected.row,this.selected.col);
+      if (current !== lastDesign) {
+        const rev = designStore.getSourceRevision();
+        if (rev !== this.selectedRevision) {
+          this.selected = { row: 0, col: 0 };
+          this.selectedRevision = rev;
+        }
+        this.selectCell(this.selected.row, this.selected.col, false);
       }
-      lastDesign = designStore.getDesign();
+      lastDesign = current;
       this.requestRender();
     }));
 
     this.cleanups.push(sceneStore.subscribe(() => {
-      this.selectCell(this.selected.row,this.selected.col);
+      const orientationDeg = sceneStore.getOrientationDeg();
+      if (orientationDeg !== lastOrientationDeg) {
+        lastOrientationDeg = orientationDeg;
+        this.refreshSelectionOutput();
+      }
       this.requestRender();
     }));
 
@@ -97,7 +176,7 @@ export class FlatView {
       this.handleResize();
     });
     resizeObserver.observe(this.container);
-    this.cleanups.push(()=>resizeObserver.disconnect());
+    this.cleanups.push(() => resizeObserver.disconnect());
   }
 
   public requestRender(): void {
@@ -113,9 +192,14 @@ export class FlatView {
     const height = this.canvas.clientHeight;
     if (width <= 0 || height <= 0) return;
 
-    this.canvas.width = width * Math.min(window.devicePixelRatio, 2);
-    this.canvas.height = height * Math.min(window.devicePixelRatio, 2);
-    this.render();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.round(width * dpr);
+    this.canvas.height = Math.round(height * dpr);
+    if (!this.userHasTransformed) {
+      this.resetFit();
+    } else {
+      this.render();
+    }
   }
 
   public resetFit(): void {
@@ -130,6 +214,7 @@ export class FlatView {
     this.scale = Math.min(scaleX, scaleY);
     this.panX = (contW - design.width * this.scale) / 2;
     this.panY = (contH - design.height * this.scale) / 2;
+    this.userHasTransformed = false;
     this.requestRender();
   }
 
@@ -145,6 +230,17 @@ export class FlatView {
       return;
     }
 
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const contW = this.canvas.clientWidth;
+    const contH = this.canvas.clientHeight;
+    if (contW <= 0 || contH <= 0) return;
+    const expectedW = Math.round(contW * dpr);
+    const expectedH = Math.round(contH * dpr);
+    if (this.canvas.width !== expectedW || this.canvas.height !== expectedH) {
+      this.canvas.width = expectedW;
+      this.canvas.height = expectedH;
+    }
+
     // 1. Render diffraction optical colors to offscreen buffer
     const rawParams = sceneStore.getRenderParams();
     const camDist = Math.hypot(rawParams.cameraPos.x, rawParams.cameraPos.y, rawParams.cameraPos.z) || 300.0;
@@ -158,10 +254,6 @@ export class FlatView {
     // 2. Draw offscreen buffer to visible canvas with pan and zoom
     const ctx = this.canvas.getContext('2d');
     if (!ctx) return;
-
-    const dpr = Math.min(window.devicePixelRatio, 2);
-    const contW = this.canvas.clientWidth;
-    const contH = this.canvas.clientHeight;
 
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -187,8 +279,26 @@ export class FlatView {
       design.height * this.scale + 1
     );
 
-    ctx.strokeStyle='#67e8f9'; ctx.lineWidth=2;
-    ctx.strokeRect(this.panX+this.selected.col*this.scale,this.panY+this.selected.row*this.scale,this.scale,this.scale);
+    const rx = this.panX + this.selected.col * this.scale;
+    const ry = this.panY + this.selected.row * this.scale;
+    if (this.scale >= 6) {
+      ctx.strokeStyle = 'rgba(10, 13, 20, 0.85)';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(rx, ry, this.scale, this.scale);
+      ctx.strokeStyle = '#67e8f9';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(rx, ry, this.scale, this.scale);
+    } else {
+      const scx = rx + this.scale * 0.5;
+      const scy = ry + this.scale * 0.5;
+      const box = 6;
+      ctx.strokeStyle = 'rgba(10, 13, 20, 0.9)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(scx - box * 0.5, scy - box * 0.5, box, box);
+      ctx.strokeStyle = '#67e8f9';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(scx - box * 0.5, scy - box * 0.5, box, box);
+    }
     this.renderLightIndicators(ctx, design);
     ctx.restore();
   }
@@ -275,14 +385,25 @@ export class FlatView {
 
   private setupInteractions(): void {
     const canvas = this.canvas;
+    let downX = 0;
+    let downY = 0;
+    let downButton = -1;
 
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
       this.isPanning = true;
       this.lastPointerX = e.clientX;
       this.lastPointerY = e.clientY;
-      canvas.setPointerCapture(e.pointerId);
+      downX = e.clientX;
+      downY = e.clientY;
+      downButton = e.button;
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore in synthetic environments
+      }
     });
 
     canvas.addEventListener('pointermove', (e) => {
@@ -292,6 +413,9 @@ export class FlatView {
         this.lastPointerX = e.clientX;
         this.lastPointerY = e.clientY;
 
+        if (deltaX !== 0 || deltaY !== 0) {
+          this.userHasTransformed = true;
+        }
         this.panX += deltaX;
         this.panY += deltaY;
         this.render();
@@ -311,8 +435,28 @@ export class FlatView {
       }
     };
 
-    canvas.addEventListener('pointerup', endPan);
-    canvas.addEventListener('pointercancel', endPan);
+    canvas.addEventListener('pointerup', (e) => {
+      endPan(e);
+      if (downButton === 0 && e.button === 0 && Math.hypot(e.clientX - downX, e.clientY - downY) <= 5) {
+        const d = designStore.getDesign();
+        if (d) {
+          const rect = canvas.getBoundingClientRect();
+          const row = Math.floor((e.clientY - rect.top - this.panY) / this.scale);
+          const col = Math.floor((e.clientX - rect.left - this.panX) / this.scale);
+          if (row >= 0 && row < d.height && col >= 0 && col < d.width) {
+            this.selectCell(row, col);
+          }
+        }
+      }
+      downButton = -1;
+    });
+    canvas.addEventListener('pointercancel', (e) => {
+      endPan(e);
+      downButton = -1;
+    });
+    canvas.addEventListener('pointerleave', () => {
+      this.onHoverCallback?.(null);
+    });
 
     canvas.addEventListener(
       'wheel',
@@ -332,6 +476,7 @@ export class FlatView {
         this.panX = mouseX - (mouseX - this.panX) * (newScale / this.scale);
         this.panY = mouseY - (mouseY - this.panY) * (newScale / this.scale);
         this.scale = newScale;
+        this.userHasTransformed = true;
 
         this.render();
       },
@@ -386,19 +531,24 @@ export class FlatView {
     exportCanvas.width = design.width;
     exportCanvas.height = design.height;
 
-    const renderer = new WebGlDiffractionRenderer(exportCanvas);
-    const rawParams = sceneStore.getRenderParams();
-    const camDist = Math.hypot(rawParams.cameraPos.x, rawParams.cameraPos.y, rawParams.cameraPos.z) || 300.0;
-    const params = {
-      ...rawParams,
-      cameraPos: { x: 0.0, y: 0.0, z: camDist },
-      quality: 'high' as const, // Always export at High 77-band quality
-      downsampleFactor: 1.0,
-    };
-    renderer.render(design, params, exportCanvas);
-    const dataUrl = exportCanvas.toDataURL('image/png');
-    renderer.dispose();
-    return dataUrl;
+    let renderer: WebGlDiffractionRenderer | null = null;
+    try {
+      renderer = new WebGlDiffractionRenderer(exportCanvas);
+      const rawParams = sceneStore.getRenderParams();
+      const camDist = Math.hypot(rawParams.cameraPos.x, rawParams.cameraPos.y, rawParams.cameraPos.z) || 300.0;
+      const params = {
+        ...rawParams,
+        cameraPos: { x: 0.0, y: 0.0, z: camDist },
+        quality: 'high' as const, // Always export at High 77-band quality
+        downsampleFactor: 1.0,
+      };
+      renderer.render(design, params, exportCanvas);
+      return exportCanvas.toDataURL('image/png');
+    } catch {
+      return '';
+    } finally {
+      renderer?.dispose();
+    }
   }
 
   public dispose(): void {

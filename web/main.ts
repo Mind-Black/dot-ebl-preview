@@ -137,12 +137,25 @@ class DotEblApp {
         this.showWelcome();
       };
     }
+
+    const headerWorkbenchBtn = document.getElementById('header-workbench-btn');
+    if (headerWorkbenchBtn) {
+      headerWorkbenchBtn.onclick = () => {
+        this.showWorkbench();
+      };
+      designStore.subscribe(() => {
+        if (this.isWelcomeState) {
+          headerWorkbenchBtn.classList.toggle('hidden', !designStore.getDesign());
+        }
+      });
+    }
   }
 
   public showWorkbench(): void {
     this.isWelcomeState = false;
     this.welcomeView.element.classList.add('hidden');
     this.workbenchElement.classList.remove('hidden');
+    document.getElementById('header-workbench-btn')?.classList.add('hidden');
     const heading=this.designControls.element.querySelector('h2')!; heading.tabIndex=-1; heading.focus();
     if (this.dualViewport.getViewMode() !== 'flat') {
       this.dualViewport.perspectiveView?.fitView();
@@ -151,9 +164,11 @@ class DotEblApp {
   }
 
   public showWelcome(): void {
+    this.sceneControls.stopSweep();
     this.isWelcomeState = true;
     this.workbenchElement.classList.add('hidden');
     this.welcomeView.element.classList.remove('hidden');
+    document.getElementById('header-workbench-btn')?.classList.toggle('hidden', !designStore.getDesign());
     const heading=this.welcomeView.element.querySelector('h1')!; heading.tabIndex=-1; heading.focus();
   }
 }

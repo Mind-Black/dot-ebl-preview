@@ -18,6 +18,7 @@ export class DesignStore {
     private resetWorker() { this.sourceRevision++; this.id++; this.pending = null; this.worker?.terminate(); this.worker = null; this.running = false; }
     private design: DesignModel | null = null;
     private source: RawImageSource | null = null;
+    private sourcePreview: RawImageSource | null = null;
     private format: InterpretationFormat = 'RGBA continuous';
     private pitch = 20000;
     private stats: ParameterStats | null = null;
@@ -32,11 +33,13 @@ export class DesignStore {
     subscribe(f: DesignListener) { this.listeners.add(f); return () => this.listeners.delete(f); }
     private notify() { this.listeners.forEach(f => f()); }
     getDesign() { return this.design; }
-    getSource() { return this.source; }
+    getSource() { return this.source ?? this.sourcePreview; }
     getInterpretation() { return this.format; }
     getPitchNm() { return this.pitch; }
     getStats() { return this.stats; }
     getError() { return this.error ?? this.importError; }
+    hasImportError() { return this.importError !== null; }
+    canRetryImport() { return this.importError !== null && this.failedFile !== null; }
     getIsProcessing() { return !!this.importing || this.running || !!this.pending; }
     getRgbaOptions() { return { ...this.options }; }
     clearError() { this.importError = null; this.error = null; this.notify(); }
@@ -107,7 +110,9 @@ export class DesignStore {
             this.resetWorker(); this.importing = null; this.pendingFilename = null;
             this.worker = candidate; this.design = r.design; this.stats = r.stats;
             this.physical = !!r.physical; this.format = r.physical ? 'NPZ design' : format;
-            this.pitch = r.design.pitchNm; this.source = null; this.error = null;
+            this.pitch = r.design.pitchNm; this.source = null;
+            this.sourcePreview = r.physical ? null : (r.sourcePreview ?? null);
+            this.error = null;
             this.failedFile = null; this.importError = null;
             const committedRevision=this.sourceRevision;
             candidate.onmessage = ({data:next}) => {
@@ -124,13 +129,13 @@ export class DesignStore {
         candidate.postMessage({id:1,file,format,pitch:this.pitch,options:{...this.options}});
         this.notify();
     }
-    loadSource(source: RawImageSource, format: InterpretationFormat, pitchNm?: number) { this.resetWorker(); this.source = source; this.physical = false; this.format = format; if (pitchNm)
+    loadSource(source: RawImageSource, format: InterpretationFormat, pitchNm?: number) { this.resetWorker(); this.source = source; this.sourcePreview = null; this.physical = false; this.format = format; if (pitchNm)
         this.pitch = pitchNm; this.submit({ source }); }
     setRgbaOptions(o: Partial<RgbaOptions>) { if(this.importing)return; const next = { ...this.options, ...o }; if ((next.minPeriodNm ?? 400) >= (next.maxPeriodNm ?? 1600) || (next.minAngleDeg ?? -90) >= (next.maxAngleDeg ?? 90)) {
         this.error = 'Minimum must be less than maximum';
         this.notify();
         return;
-    } this.options = next; if (!this.physical)
+    } this.error = null; this.options = next; if (!this.physical)
         this.submit();
     else
         this.notify(); }
@@ -144,6 +149,6 @@ export class DesignStore {
         this.stats = computeParameterStats(this.design);
         this.notify();
     } }
-    setPhysicalDesign(d: DesignModel) { this.importError = null; this.importing?.terminate(); this.importing = null; this.pendingFilename = null; this.resetWorker(); this.physical = true; this.source = null; this.design = d; this.pitch = d.pitchNm; this.stats = computeParameterStats(d); this.error = null; this.format = 'NPZ design'; this.notify(); }
+    setPhysicalDesign(d: DesignModel) { this.importError = null; this.importing?.terminate(); this.importing = null; this.pendingFilename = null; this.resetWorker(); this.physical = true; this.source = null; this.sourcePreview = null; this.design = d; this.pitch = d.pitchNm; this.stats = computeParameterStats(d); this.error = null; this.format = 'NPZ design'; this.notify(); }
 }
 export const designStore = new DesignStore();
